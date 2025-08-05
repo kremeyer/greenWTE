@@ -186,8 +186,8 @@ def dT_to_N(
     dtypec : cupy.dtype, optional
         The data type for the complex matrices, default is cp.complex128.
     solver : {"gmres", "cgesv"}
-        The solver to use for the linear system. gmres uses :py:fun:`cupyx.scipy.sparse.linalg.gmres`, while cgesv uses
-        :py:func:`cupy.linalg.solve`.
+        The solver to use for the linear system. gmres uses :func:`cupyx.scipy.sparse.linalg.gmres`, while cgesv uses
+        :func:`cupy.linalg.solve`.
     conv_thr : float, optional
         The convergence threshold for the solver, default is 1e-12.
     progress : bool, optional
@@ -195,12 +195,10 @@ def dT_to_N(
 
     Returns
     -------
-    tuple[cupy.ndarray, list]
-        A tuple containing:
-        - n : cupy.ndarray
-            The wigner distribution function n, shape (nq, nat3, nat3).
-        - outer_residuals : list
-            A list of residuals for each iteration of the solver.
+    n : cupy.ndarray
+        The Wigner distribution function n, shape (nq, nat3, nat3).
+    outer_residuals : list
+        A list of residuals for each iteration of the solver.
 
     """
     with nvtx.annotate("init dT_to_N", color="blue"):
@@ -365,7 +363,7 @@ class Solver:
     """Class to solve the Wigner Transport Equation (WTE).
 
     Solver for the WTE for the wigner distribution function n and the temperature change dT with a source term. This
-    class provides methods to run the solver using different outer solvers (Aitken, plain, root) and an inner solver
+    class provides methods to run the solver using different outer solvers (aitken, plain, root) and an inner solver
     (GMRES or CGESV).
 
     Parameters
@@ -404,8 +402,6 @@ class Solver:
 
     Attributes
     ----------
-    outer_solver_options : list
-        A list of available outer solvers: "aitken", "plain", "root".
     omg_ft_array : cupy.ndarray
         An array of temporal Fourier variables [Hz] for which the WTE will be solved.
     k_ft : cupy.ndarray
@@ -444,8 +440,6 @@ class Solver:
         The wigner distribution function n for each omg_ft, shape (n_omg_ft, nq, nat3, nat3).
     niter : cupy.ndarray
         The number of iterations taken for the outer solver to converge for each omg_ft, shape (n_omg_ft,).
-    n_convergence : cupy.ndarray
-        The convergence of the wigner distribution function n for each omg_ft, shape (n_omg_ft,).
     iter_time_list : list
         A list of iteration times for each omg_ft.
     dT_convergence_list : list
@@ -468,7 +462,7 @@ class Solver:
 
     """
 
-    outer_solver_options = ["aitken", "plain", "root"]
+    __outer_solver_options = ["aitken", "plain", "root"]
     _kappa = None
     _kappa_p = None
     _kappa_c = None
@@ -506,7 +500,7 @@ class Solver:
         self.dtyper = dtyper
         self.dtypec = dtypec
         self.history = []
-        if outer_solver not in self.outer_solver_options:
+        if outer_solver not in self.__outer_solver_options:
             raise ValueError(f"Unknown outer solver: {outer_solver}")
         self.outer_solver = outer_solver
         self.inner_solver = inner_solver

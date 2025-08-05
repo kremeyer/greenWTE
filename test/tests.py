@@ -5,9 +5,9 @@ from os.path import join as pj
 import cupy as cp
 import h5py
 import pytest
-from wtesolver.lib import Solver
-from wtesolver.solver import load_phono3py_data, save_solver_result
-from wtesolver.sources import source_term_gradT
+from greenWTE.lib import Solver
+from greenWTE.solver import load_phono3py_data, save_solver_result
+from greenWTE.sources import source_term_gradT
 
 from .defaults import DEFAULT_TEMPERATURE, DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING, SI_INPUT_PATH
 

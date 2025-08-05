@@ -1,0 +1,6 @@
+greenWTE
+========
+
+.. toctree::
+
+    api

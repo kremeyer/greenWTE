@@ -1,0 +1,54 @@
+[tool.hatch]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "greenWTE"
+description = "Solve the Wigner Transport Equation with a source term!"
+authors = [{ name = "Laurenz Kremeyer", email = "laurenz.kremeyer@mail.mcgill.ca" }]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+
+[tool.ruff]
+line-length = 120
+src = ["wtesolver", "test"]
+
+[tool.ruff.lint]
+select = [
+    "F", # pyflakes
+    "B", # flake8-bugbear
+    "SIM", # flake8-simplify
+    "I", # isort
+    "E", # pycodestyle-errors
+    "D", # pydocstyle
+]
+ignore = [
+    "D203", # numpy doc style
+    "D213", # numpy doc style
+    "B023", # function-uses-loop-variable
+    "B008", # function-call-in-default-argument
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["test/*.py"]
+addopts = "-ra"
+filterwarnings = [
+  # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
+  "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",
+  # Ignoe NumPy product deprecation emitted inside h5py
+  "ignore: `product` is deprecated as of NumPy 1.25.0, and will be removed in NumPy 2.0. Please use `prod` instead.",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["greenWTE"]
+omit = ["greenWTE/post.py"]
+
+[tool.coverage.report]
+show_missing = true

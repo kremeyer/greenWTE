@@ -1,1 +1,1 @@
-"""Test suite for the WTE solver library."""
+"""Test suite for the greenWTE package."""

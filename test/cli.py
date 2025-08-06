@@ -1,4 +1,4 @@
-"""Test cases for the command line interface of the wtesolver package."""
+"""Test cases for the command line interface of the greenWTE package."""
 
 import subprocess
 import sys

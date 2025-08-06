@@ -11,13 +11,13 @@ repos:
     rev: v0.12.7
     hooks:
       - id: ruff-check
-        args: ["wtesolver", "test"]
+        args: ["greenWTE", "test"]
       - id: ruff-format
-        args: ["wtesolver", "test"]
+        args: ["greenWTE", "test"]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
       - id: codespell
         stages: [pre-commit, commit-msg]
-        args: --check-filenames
+        args: [--check-filenames]

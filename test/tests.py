@@ -1,4 +1,4 @@
-"""Test suite for the WTE solver library."""
+"""Test suite for the greenWTE package."""
 
 from os.path import join as pj
 
@@ -118,7 +118,7 @@ def test_output_file_dimensions(tmp_path):
 
     source = source_term_gradT(DEFAULT_THERMAL_GRATING, velocity_operator, phonon_freq, heat_capacity, volume)
 
-    max_iter = 2  # we cant have the solver converge to be able to test the output file dimensions
+    max_iter = 2  # we can't have the solver converge to be able to test the output file dimensions
     nw = 3
     nq, nat3 = phonon_freq.shape
 

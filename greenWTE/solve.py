@@ -13,7 +13,7 @@ import h5py
 from scipy.constants import elementary_charge
 
 from . import sources
-from .lib import Solver
+from .iterative import IterativeWTESolver
 
 
 def parse_arguments():
@@ -78,7 +78,7 @@ def parse_arguments():
         a.omega_range = cp.logspace(*a.omega_range)
     else:
         raise ValueError("omega_range must be a single value or 3 values (start, stop, num)")
-    a.omega_range = cp.sort(a.omega_range)[::-1]
+    a.omega_range = cp.sort(a.omega_range)#[::-1]
 
     a.spacial_frequency = 10 ** float(a.spacial_frequency)
 
@@ -127,22 +127,22 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
 def save_solver_result(filename, solver, **kwargs):
     """Save the solver results to an HDF5 file."""
     with h5py.File(filename, "w") as h5f:
-        h5f.create_dataset("dT", data=solver.dT.get()[::-1])
-        h5f.create_dataset("dT_init", data=solver.dT_init.get()[::-1])
-        h5f.create_dataset("n", data=solver.n.get()[::-1])
-        h5f.create_dataset("niter", data=solver.niter.get()[::-1])
-        h5f.create_dataset("iter_time", data=solver.iter_time.get()[::-1])
-        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get()[::-1])
-        h5f.create_dataset("dT_convergence", data=solver.dT_convergence.get()[::-1])
-        h5f.create_dataset("n_convergence", data=solver.n_convergence.get()[::-1])
+        h5f.create_dataset("dT", data=solver.dT.get())#[::-1])
+        h5f.create_dataset("dT_init", data=solver.dT_init.get())#[::-1])
+        h5f.create_dataset("n", data=solver.n.get())#[::-1])
+        h5f.create_dataset("niter", data=solver.niter.get())#[::-1])
+        h5f.create_dataset("iter_time", data=solver.iter_time.get())#[::-1])
+        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())#[::-1])
+        h5f.create_dataset("dT_convergence", data=solver.dT_convergence.get())#[::-1])
+        h5f.create_dataset("n_convergence", data=solver.n_convergence.get())#[::-1])
         h5f.create_dataset("source", data=solver.source.get())
 
-        h5f.create_dataset("omega", data=solver.omg_ft_array.get()[::-1])
+        h5f.create_dataset("omega", data=solver.omg_ft_array.get())#[::-1])
         h5f.create_dataset("k", data=solver.k_ft)
         h5f.create_dataset("max_iter", data=solver.max_iter)
         h5f.create_dataset("conv_thr", data=solver.conv_thr)
-        h5f.create_dataset("dtype_real", data=str(solver.dtyper))
-        h5f.create_dataset("dtype_complex", data=str(solver.dtypec))
+        h5f.create_dataset("dtype_real", data=str(solver.material.dtyper))
+        h5f.create_dataset("dtype_complex", data=str(solver.material.dtypec))
         h5f.create_dataset("outer_solver", data=solver.outer_solver)
         h5f.create_dataset("inner_solver", data=solver.inner_solver)
         # h5f.create_dataset("diag_velocity_operator", data=solver.command_line_args.diag_velocity_operator)
@@ -150,7 +150,6 @@ def save_solver_result(filename, solver, **kwargs):
         # h5f.create_dataset("source_flag", data=solver.command_line_args.source_type)
 
         for key, value in vars(solver.command_line_args).items():
-            print(key, value)
             if key in h5f:
                 continue
             if isinstance(value, cp.ndarray):
@@ -166,6 +165,8 @@ def save_solver_result(filename, solver, **kwargs):
 
 
 if __name__ == "__main__":
+    from .base import Material
+
     args = parse_arguments()
 
     if args.single_precision:
@@ -201,6 +202,14 @@ if __name__ == "__main__":
         dtypec=dtypec,
     )
 
+    material = Material.from_phono3py(
+        filename=args.input,
+        temperature=args.temperature,
+        dir_idx=dir_idx,
+        dtyper=dtyper,
+        dtypec=dtypec,
+    )
+
     if args.diag_velocity_operator:
         offdiag_mask = ~cp.eye(velocity_operator.shape[1], dtype=cp.bool_)
         velocity_operator[:, offdiag_mask] = 0
@@ -222,19 +231,13 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown source term structure: {args.source_type}")
 
-    solver = Solver(
+    solver = IterativeWTESolver(
         omg_ft_array=args.omega_range,
         k_ft=args.spacial_frequency,
-        phonon_freq=phonon_freq,
-        linewidth=linewidth,
-        velocity_operator=velocity_operator,
-        heat_capacity=heat_capacity,
-        volume=volume,
+        material=material,
         source=source,
         max_iter=args.max_iter,
         conv_thr=args.conv_thr,
-        dtyper=dtyper,
-        dtypec=dtypec,
         outer_solver=args.outer_solver,
         inner_solver=args.inner_solver,
         command_line_args=args,

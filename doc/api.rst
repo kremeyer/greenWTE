@@ -5,6 +5,7 @@ API Reference
     :toctree: generated
     :recursive:
 
-    greenWTE.solver
-    greenWTE.lib
+    greenWTE.solve
+    greenWTE.iterative
+    greenWTE.green
     greenWTE.sources

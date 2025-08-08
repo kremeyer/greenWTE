@@ -1,10 +1,9 @@
-"""Shortcuts for importing."""
+"""__init__.py for greenWTE package."""
 
-from .lib import Solver
-from .solver import load_phono3py_data, save_solver_result
+import warnings
 
-__all__ = [
-    "Solver",
-    "load_phono3py_data",
-    "save_solver_result",
-]
+# triggered when cupyx.scipy.sparse.linalg.gmres
+# invokes np.linalg.lstsq under the hood
+warnings.filterwarnings(
+    "ignore", category=FutureWarning, message=r".*`rcond` parameter will change to the default of machine precision.*"
+)

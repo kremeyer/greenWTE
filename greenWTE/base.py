@@ -624,7 +624,7 @@ class SolverBase(ABC):
         n_old = None
 
         def residual_vec(x):
-            # x is np.array([Re(dT), Im(dT)]) on CPU (neccessary for scipy)
+            # x is np.array([Re(dT), Im(dT)]) on CPU (necessary for scipy)
             nonlocal n, n_old, dT_convergence, gmres_residual, iter_times
             dT = cp.asarray(x[0] + 1j * x[1], dtype=self.material.dtypec)
             iter_start = time.time()
@@ -678,7 +678,7 @@ class SolverBase(ABC):
     def residual_weights(self):
         """Return the weights for the real and imaginary parts of the residual."""
         return self._wR, self._wI
-    
+
     @residual_weights.setter
     def residual_weights(self, weights: tuple[float, float]):
         """Set the weights for the real and imaginary parts of the residual."""
@@ -825,7 +825,7 @@ class SolverBase(ABC):
 
 
 def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.ndarray:
-    """Elementwise num/den with 0 weher |den|<=eps (avoinds 0/0 -> NaN).
+    """Elementwise num/den with 0 weher |den|<=eps (avoids 0/0 -> NaN).
 
     Parameters
     ----------
@@ -1015,7 +1015,7 @@ def _dT_to_N_iterative(
     """Calculate the wigner distribution function n from the temperature change dT.
 
     This function solves the linear equation system that arises from the WTE for the wigner distribution function n
-    for a given temperature change dT in an interative manner. This is much slower than the direct method, but does not
+    for a given temperature change dT in an iterative manner. This is much slower than the direct method, but does not
     require knowledge of the Green's function.
 
     Parameters
@@ -1136,7 +1136,7 @@ def dT_to_N_matmul(
 ) -> cp.ndarray:
     """Calculate the wigner distribution function n from the temperature change dT.
 
-    With knowledge of the Green's function one can obtain the Wigner distribution function n direcly via matrix
+    With knowledge of the Green's function one can obtain the Wigner distribution function n directly via matrix
     multiplication of the Green's function with the source term. No need to iteratively solve a linear system of
     equations.
 

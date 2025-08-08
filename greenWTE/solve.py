@@ -78,7 +78,7 @@ def parse_arguments():
         a.omega_range = cp.logspace(*a.omega_range)
     else:
         raise ValueError("omega_range must be a single value or 3 values (start, stop, num)")
-    a.omega_range = cp.sort(a.omega_range)#[::-1]
+    a.omega_range = cp.sort(a.omega_range)  # [::-1]
 
     a.spacial_frequency = 10 ** float(a.spacial_frequency)
 
@@ -127,17 +127,17 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
 def save_solver_result(filename, solver, **kwargs):
     """Save the solver results to an HDF5 file."""
     with h5py.File(filename, "w") as h5f:
-        h5f.create_dataset("dT", data=solver.dT.get())#[::-1])
-        h5f.create_dataset("dT_init", data=solver.dT_init.get())#[::-1])
-        h5f.create_dataset("n", data=solver.n.get())#[::-1])
-        h5f.create_dataset("niter", data=solver.niter.get())#[::-1])
-        h5f.create_dataset("iter_time", data=solver.iter_time.get())#[::-1])
-        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())#[::-1])
-        h5f.create_dataset("dT_convergence", data=solver.dT_convergence.get())#[::-1])
-        h5f.create_dataset("n_convergence", data=solver.n_convergence.get())#[::-1])
+        h5f.create_dataset("dT", data=solver.dT.get())  # [::-1])
+        h5f.create_dataset("dT_init", data=solver.dT_init.get())  # [::-1])
+        h5f.create_dataset("n", data=solver.n.get())  # [::-1])
+        h5f.create_dataset("niter", data=solver.niter.get())  # [::-1])
+        h5f.create_dataset("iter_time", data=solver.iter_time.get())  # [::-1])
+        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())  # [::-1])
+        h5f.create_dataset("dT_convergence", data=solver.dT_convergence.get())  # [::-1])
+        h5f.create_dataset("n_convergence", data=solver.n_convergence.get())  # [::-1])
         h5f.create_dataset("source", data=solver.source.get())
 
-        h5f.create_dataset("omega", data=solver.omg_ft_array.get())#[::-1])
+        h5f.create_dataset("omega", data=solver.omg_ft_array.get())  # [::-1])
         h5f.create_dataset("k", data=solver.k_ft)
         h5f.create_dataset("max_iter", data=solver.max_iter)
         h5f.create_dataset("conv_thr", data=solver.conv_thr)

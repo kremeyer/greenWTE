@@ -171,7 +171,6 @@ class RTAGreenOperator:
             self.wigner_operator._op = None
 
 
-
 class GreenWTESolver(SolverBase):
     r"""Wigner Transport Equation solver using precomputed Green's operators.
 
@@ -241,16 +240,16 @@ class GreenWTESolver(SolverBase):
     """
 
     def __init__(
-            self,
-            omg_ft_array: cp.ndarray,
-            k_ft: cp.ndarray,
-            material: Material,
-            source: cp.ndarray,
-            greens: list[RTAGreenOperator],
-            max_iter=100,
-            conv_thr=1e-12,
-            outer_solver="root",
-            command_line_args=Namespace(),
+        self,
+        omg_ft_array: cp.ndarray,
+        k_ft: cp.ndarray,
+        material: Material,
+        source: cp.ndarray,
+        greens: list[RTAGreenOperator],
+        max_iter=100,
+        conv_thr=1e-12,
+        outer_solver="root",
+        command_line_args=Namespace(),
     ) -> None:
         """Initialize GreenWTESolver."""
         super().__init__(
@@ -316,7 +315,7 @@ if __name__ == "__main__":
     rgo.compute(clear_wigner=False)
 
     for iq in range(len(rgo)):
-        assert cp.allclose(rgo[iq] @ rwo[iq], cp.eye(rwo.nat3 ** 2), atol=1e-12, rtol=1e-12)
+        assert cp.allclose(rgo[iq] @ rwo[iq], cp.eye(rwo.nat3**2), atol=1e-12, rtol=1e-12)
 
     gws = GreenWTESolver(
         omg_ft_array=cp.array([omg_ft]),

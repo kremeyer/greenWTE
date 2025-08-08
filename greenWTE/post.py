@@ -1,4 +1,5 @@
 """Post-processing utilities for greenWTE."""
+
 import numpy as np
 from numba import njit, prange
 from scipy.interpolate import LinearNDInterpolator, PchipInterpolator
@@ -7,7 +8,7 @@ from scipy.signal import savgol_filter
 
 def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
     """Perform an inverse FFT manually with interpolation onto a linear frequency grid.
-    
+
     Parameters
     ----------
     freq : array_like
@@ -20,14 +21,14 @@ def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
         Number of time points to compute. If None, it is set to n_freq_lin // 10 + 1.
     freq_cutoff : float, optional
         Frequency cutoff for the linear grid. If None, it is set to the maximum frequency in `freq`.
-    
+
     Returns
     -------
     t : ndarray
         Time array corresponding to the inverse FFT.
     data_ft : ndarray
         Inverse FFT of the input data.
-    
+
     Notes
     -----
     The function mirrors the input frequency and data arrays to enforce Hermitian symmetry,
@@ -61,11 +62,13 @@ def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
 
     return t[1:], data_ft[1:]
 
+
 def _ifft_integral(f, data, t, df):
     data_ft = np.zeros_like(t, dtype=complex)
     for i, ti in enumerate(t):
         data_ft[i] = np.sum(np.exp(-1j * f * ti) * data) * df
     return data_ft
+
 
 @njit(parallel=True, fastmath=True)
 def _ifft_integral_jit(f, data, t, df):

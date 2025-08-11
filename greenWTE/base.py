@@ -77,7 +77,7 @@ class Material:
             An instance of the Material class with the loaded properties.
 
         """
-        from .solve import load_phono3py_data
+        from .solve_iter import load_phono3py_data
 
         velocity_operator, phonon_freq, linewidth, heat_capacity, volume, _ = load_phono3py_data(
             filename, temperature=temperature, dir_idx=dir_idx, dtyper=dtyper, dtypec=dtypec
@@ -96,6 +96,19 @@ class Material:
     def __repr__(self):
         """Return a string representation of the Material."""
         return f"{self.name}@{self.temperature}K with {self.nq} qpoints and {self.nat3} modes"
+
+    def __getitem__(self, iq):
+        """Get a specific q-point from the material."""
+        return Material(
+            temperature=self.temperature,
+            velocity_operator=self.velocity_operator[iq][None, ...],
+            phonon_freq=self.phonon_freq[iq][None, ...],
+            linewidth=self.linewidth[iq][None, ...],
+            heat_capacity=self.heat_capacity[iq][None, ...],
+            volume=self.volume,
+            name=self.name,
+            degeneracy_tol=self.degeneracy_tol,
+        )
 
     @property
     def degeneracy_tol(self):
@@ -221,7 +234,7 @@ def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128
 
     """
     if not history:
-        return cp.asarray(1 + 1j)
+        return cp.asarray((1 + 1j))
 
     omg_fts, dTs = zip(*sorted(history))
     omg_fts = cp.asarray(omg_fts, dtype=dtyper)
@@ -640,7 +653,6 @@ class SolverBase(ABC):
 
             dT_new = N_to_dT(n, self.material)
             dT_convergence.append(dT_new)
-
             if n_old is not None:
                 n_step_norm = cp.linalg.norm(n - n_old) / cp.linalg.norm(n_old)
                 n_convergence.append(n_step_norm)
@@ -825,7 +837,7 @@ class SolverBase(ABC):
 
 
 def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.ndarray:
-    """Elementwise num/den with 0 weher |den|<=eps (avoids 0/0 -> NaN).
+    """Elementwise num/den with 0 where abs(den)<=eps (avoids 0/0 -> NaN).
 
     Parameters
     ----------

@@ -8,7 +8,7 @@ import h5py
 import pytest
 from greenWTE.base import Material
 from greenWTE.iterative import IterativeWTESolver
-from greenWTE.solve import save_solver_result
+from greenWTE.solve_iter import save_solver_result
 from greenWTE.sources import source_term_gradT
 
 from .defaults import (
@@ -51,8 +51,8 @@ def test_silicon_isotropy():
         )
 
         solver.run()
-        solver.dT = cp.real(solver.dT)  # use the real part of the solution to compute thermal conductivities
-        solver.n[0] = solver._dT_to_N(solver.dT, DEFAULT_TEMPORAL_FREQUENCY, 0)[0]
+        # solver.dT = cp.real(solver.dT)  # use the real part of the solution to compute thermal conductivities
+        # solver.n[0] = solver._dT_to_N(solver.dT, DEFAULT_TEMPORAL_FREQUENCY, 0)[0]
         kappas.append((cp.real(solver.kappa_p), cp.real(solver.kappa_c)))
 
     kappas = cp.array(kappas)

@@ -86,6 +86,7 @@ class IterativeWTESolver(SolverBase):
         outer_solver="aitken",
         inner_solver="gmres",
         command_line_args=Namespace(),
+        residual_weights: tuple[float, float] = (1.0, 0.0),
     ) -> None:
         """Initialize IterativeWTESolver."""
         super().__init__(
@@ -97,6 +98,7 @@ class IterativeWTESolver(SolverBase):
             conv_thr=conv_thr,
             outer_solver=outer_solver,
             command_line_args=command_line_args,
+            residual_weights=residual_weights,
         )
         self.inner_solver = inner_solver
 

@@ -25,5 +25,7 @@ indent-style = "space"
 [tool.pytest.ini_options]
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
-  "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative"
+  "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",
+  # Ignoe NumPy product deprecation emitted inside h5py
+  "ignore: `product` is deprecated as of NumPy 1.25.0, and will be removed in NumPy 2.0. Please use `prod` instead.",
 ]

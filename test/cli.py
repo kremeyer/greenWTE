@@ -10,9 +10,10 @@ import pytest
 from .defaults import DEFAULT_TEMPERATURE, DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING, SI_INPUT_PATH
 
 
-def test_run_as_module():
-    """Test that the greenWTE.solve module can be run as a module."""
-    cmd = [sys.executable, "-m", "greenWTE.solve", "--help"]
+@pytest.mark.parametrize("module_name", ["greenWTE.solve_iter", "greenWTE.precompute_green"])
+def test_run_as_module(module_name):
+    """Test that some greenWTE modules can be run as a module."""
+    cmd = [sys.executable, "-m", module_name, "--help"]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"Command failed with error: {result.stderr}"
     assert "usage:" in result.stdout, "Help message not found in output"
@@ -59,9 +60,9 @@ def test_run_as_module():
     ],
 )
 def test_cli_options(tmp_path, cli_arg):
-    """Test various command line interface options for the greenWTE.solve module."""
+    """Test various command line interface options for the greenWTE.solve_iter module."""
     output_file = pj(tmp_path, "test_cli_options.h5")
-    cmd = [sys.executable, "-m", "greenWTE.solve", SI_INPUT_PATH, output_file, *cli_arg, "--dry-run"]
+    cmd = [sys.executable, "-m", "greenWTE.solve_iter", SI_INPUT_PATH, output_file, *cli_arg, "--dry-run"]
     print(cmd)
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"Command failed with error: {result.stderr}"

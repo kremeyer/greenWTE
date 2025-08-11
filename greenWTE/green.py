@@ -1,10 +1,12 @@
 """Module for explicitly inverting the Linear Operator of the WTE to obtain the Green's function."""
 
+from abc import ABC, abstractmethod
 from argparse import Namespace
 
 import cupy as cp
 
 from .base import Material, SolverBase, dT_to_N_matmul
+from .io import GreenContainer
 
 
 class RTAWignerOperator:
@@ -81,70 +83,92 @@ class RTAWignerOperator:
             self._op[ii] = (1j * (term1 - term2)) + term3
 
 
-class RTAGreenOperator:
-    """Class to compute the Green's function in the relaxation time approximation from the Wigner operator."""
+class GreenOperatorBase(ABC):
+    """Base class for Green's operators.
+
+    Provides a common interface for Green's operators, whether computed or loaded from disk.
+    """
 
     __array_priority__ = 1000
+
+    def _require_ready(self):
+        """Ensure the Green's operator is computed before accessing it."""
+        if self._green is None:
+            raise RuntimeError("Green's operator not computed yet. Call compute() first.")
+
+    def __getitem__(self, iq):
+        """Allow indexing to access the Green's function for a specific q-point."""
+        self._require_ready()
+        return self._green[iq]
+
+    def __matmul__(self, other):
+        """Allow matrix multiplication with the Green's function."""
+        self._require_ready()
+        return self._green @ other
+
+    def __len__(self):
+        """Return the number of q-points in the Green's function."""
+        self._require_ready()
+        return len(self._green)
+
+    def __iter__(self):
+        """Allow iteration over the Green's function q-points."""
+        self._require_ready()
+        return iter(self._green)
+
+    @property
+    def __cuda_array_interface__(self):
+        """Return the CUDA array interface for the Green's function."""
+        self._require_ready()
+        return self._green.__cuda_array_interface__
+
+    @property
+    def shape(self):
+        """Return the shape of the Green's function."""
+        self._require_ready()
+        return self._green.shape
+
+    @property
+    def dtype(self):
+        """Return the dtype of the Green's function."""
+        self._require_ready()
+        return self._green.dtype
+
+    def squeeze(self):
+        """Return the Green's function with singleton dimensions removed."""
+        self._require_ready()
+        return self._green.squeeze()
+
+    def __repr__(self):
+        """Return a string representation of the Green's operator."""
+        return f"<RTAGreenOperator: {len(self)} q-points at w={self.omg_ft:.2e} with dtype={self.dtypec.__name__}>"
+
+    @abstractmethod
+    def compute(self, recompute=False, **kwargs):
+        """Compute or load the Green's function from disk."""
+
+    def free(self):
+        """Free the memory used by the Green's operator."""
+        if self._green is not None:
+            self._green = None
+            if hasattr(self, "wigner_operator"):
+                self.wigner_operator._op = None
+
+
+class RTAGreenOperator(GreenOperatorBase):
+    """Class to compute the Green's function in the relaxation time approximation from the Wigner operator."""
 
     def __init__(self, wigner_operator: RTAWignerOperator):
         """Initialize the Green's operator with the Wigner operator."""
         self.wigner_operator = wigner_operator
         self.omg_ft = wigner_operator.omg_ft
+        self.k_ft = wigner_operator.k_ft
         self._green = None
         self.material = wigner_operator.material
         self.nq = wigner_operator.nq
         self.nat3 = wigner_operator.nat3
         self.dtyper = wigner_operator.dtyper
         self.dtypec = wigner_operator.dtypec
-
-    def __getitem__(self, iq):
-        """Allow indexing to access the Green's function for a specific q-point."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return self._green[iq]
-
-    def __matmul__(self, other):
-        """Allow matrix multiplication with the Green's function."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return self._green @ other
-
-    def __len__(self):
-        """Return the number of q-points in the Green's function."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return len(self._green)
-
-    def __iter__(self):
-        """Allow iteration over the Green's function q-points."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return iter(self._green)
-
-    @property
-    def __cuda_array_interface__(self):
-        """Return the CUDA array interface for the Green's function."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return self._green.__cuda_array_interface__
-
-    @property
-    def shape(self):
-        """Return the shape of the Green's function."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return self._green.shape
-
-    @property
-    def dtype(self):
-        """Return the dtype of the Green's function."""
-        if self._green is None:
-            raise RuntimeError("Green's function not computed yet.")
-        return self._green.dtype
-
-    def __repr__(self):
-        """Return a string representation of the Green's operator."""
-        return f"<RTAGreenOperator: {len(self)} q-points at ω={self.omg_ft:.2e} with dtype={self.dtypec.__name__}>"
 
     def compute(self, recompute=False, clear_wigner=True):
         """Compute the Green's function from the Wigner operator.
@@ -169,6 +193,44 @@ class RTAGreenOperator:
 
         if clear_wigner:
             self.wigner_operator._op = None
+
+
+class DiskGreenOperator(GreenOperatorBase):
+    """Disk-based Green's operator that loads precomputed Green's functions from disk.
+
+    Loads one (nq, m, m) slab to GPU on demand.
+    """
+
+    def __init__(
+        self,
+        container: GreenContainer,
+        omg_ft: float,
+        k_ft: float,
+        material: Material,
+        atol: float = 1e-6,
+        as_gpu: bool = True,
+    ):
+        """Initialize the disk-based Green's operator."""
+        self.omg_ft = omg_ft
+        self.k_ft = k_ft
+        self.material = material
+        self.nq = material.nq
+        self.nat3 = material.nat3
+        self.dtyper = material.dtyper
+        self.dtypec = material.dtypec
+
+        self._gc = container
+        self._as_gpu = as_gpu
+        self._atol = atol
+        self._green = None
+
+    def compute(self, recompute=False):
+        """Load the Green's operator from disk or recompute it if necessary."""
+        if self._green is not None and not recompute:
+            return
+        # pull the Green's operator from disk
+        arr = self._gc.get_bz_block(self.omg_ft, self.k_ft, as_gpu=self._as_gpu, atol=self._atol)
+        self._green = cp.ascontiguousarray(cp.asarray(arr, dtype=self.dtypec))
 
 
 class GreenWTESolver(SolverBase):
@@ -250,6 +312,7 @@ class GreenWTESolver(SolverBase):
         conv_thr=1e-12,
         outer_solver="root",
         command_line_args=Namespace(),
+        residual_weights: tuple[float, float] = (1.0, 0.0),
     ) -> None:
         """Initialize GreenWTESolver."""
         super().__init__(
@@ -261,6 +324,7 @@ class GreenWTESolver(SolverBase):
             conv_thr=conv_thr,
             outer_solver=outer_solver,
             command_line_args=command_line_args,
+            residual_weights=residual_weights,
         )
         if not len(greens) == len(omg_ft_array):
             raise ValueError("Number of Green's operators must match the number of omg_ft values.")
@@ -281,56 +345,59 @@ class GreenWTESolver(SolverBase):
         )
         return n, [[] for _ in range(self.material.nq)]  # no residuals from matrix multiplication
 
+    def run(self):
+        """Run the WTE solver for each temporal Fourier variable in omg_ft_array.
 
-if __name__ == "__main__":
-    from .sources import source_term_gradT
+        This method uses the specified outer solver (Aitken, plain, or root) to solve the WTE for each omg_ft in
+        omg_ft_array. After running, the results are stored in the class attributes dT, dT_init, n, niter,
+        n_convergence, iter_time_list, dT_convergence_list, n_convergence_list, and gmres_residual_list.
+        """
+        if self.outer_solver == "aitken":
+            run_func = self._run_solver_aitken
+        elif self.outer_solver == "plain":
+            run_func = self._run_solver_plain
+        elif self.outer_solver == "root":
+            run_func = self._run_solver_root
+        else:
+            raise ValueError(f"Unknown outer solver: {self.outer_solver}")
 
-    t = 50
-    omg_ft = 0
-    k_ft = 1e2
+        for i, omg_ft in enumerate(self.omg_ft_array):
+            g = self.greens[i]
+            g.compute()  # ensure the Green's operator is computed or loaded from disk
+            ret = run_func(i, omg_ft)
+            self.dT[i] = ret[1]
+            self.dT_init[i] = ret[2]
+            self.n[i] = ret[3]
+            self.niter[i] = ret[4]
+            self.iter_time_list.append(ret[5])
+            self.dT_convergence_list.append(ret[6])
+            self.n_convergence_list.append(ret[7])
+            self.gmres_residual_list.append(ret[8])
 
-    material = Material.from_phono3py(
-        "Si/kappa-m151515_nosym.hdf5",
-        # "CsPbBr3/kappa-m443_nosym.hdf5",
-        temperature=t,
-        dir_idx=2,
-    )
+            # check self-consistency by checking norm(n(dT) - n)
+            last_n = ret[3]
+            theoretical_next_n, _ = self._dT_to_N(
+                dT=ret[1],
+                omg_ft=omg_ft,
+                omg_idx=i,
+                sol_guess=None,
+            )
+            n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
+            self.n_convergence_list[i].append(n_step_norm)
 
-    source = source_term_gradT(
-        k_ft=k_ft,
-        velocity_operator=material.velocity_operator,
-        phonon_freq=material.phonon_freq,
-        heat_capacity=material.heat_capacity,
-        volume=material.volume,
-    )
+            if self.progress:
+                print("")
+            width = len(str(len(self.omg_ft_array)))
+            print(
+                f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
+                f"k={self.k_ft:.2e} "
+                f"w={omg_ft:.2e} "
+                f"dT={self.dT[i]: .2e} "
+                f"nit={self.niter[i]: 4d} "
+                f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
+                f"n_conv={n_step_norm:.1e} "
+            )
 
-    rwo = RTAWignerOperator(
-        omg_ft=omg_ft,
-        k_ft=k_ft,
-        material=material,
-    )
-    rwo.compute()
+            g.free()  # free memory used by the Green's operator
 
-    rgo = RTAGreenOperator(rwo)
-    rgo.compute(clear_wigner=False)
-
-    for iq in range(len(rgo)):
-        assert cp.allclose(rgo[iq] @ rwo[iq], cp.eye(rwo.nat3**2), atol=1e-12, rtol=1e-12)
-
-    gws = GreenWTESolver(
-        omg_ft_array=cp.array([omg_ft]),
-        k_ft=k_ft,
-        material=material,
-        source=source,
-        greens=[rgo],
-        max_iter=100,
-        outer_solver="root",
-        conv_thr=2e-15,
-    )
-    gws.run()
-
-    print(gws.kappa)
-    print(gws.kappa_p)
-    print(gws.kappa_c)
-
-    N_green = gws.n[0]
+        self._solution_lists_to_arrays()

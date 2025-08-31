@@ -19,6 +19,28 @@ from .defaults import (
 )
 
 
+def test_rtawigneroperator_basic():
+    """Test the basic functionality of the RTAWignerOperator."""
+    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
+
+    rwo = RTAWignerOperator(omg_ft=DEFAULT_TEMPORAL_FREQUENCY, k_ft=DEFAULT_THERMAL_GRATING, material=material)
+
+    # test error before computing
+    with pytest.raises(RuntimeError, match="Wigner operator not computed yet."):
+        _ = rwo[0]
+    with pytest.raises(RuntimeError, match="Wigner operator not computed yet."):
+        for _ in rwo:
+            pass
+    # test len
+    assert len(rwo) == material.nq
+
+    rwo.compute()
+    # test iteration and indexing
+    _ = rwo[0]
+    for _ in rwo:
+        pass
+
+
 def test_rta_green_operator_consistency():
     """Test the consistency of the RTA Green's operator with the Wigner operator.
 
@@ -79,6 +101,7 @@ def test_solver_with_green_container(tmp_path):
         DEFAULT_THERMAL_GRATING,
         material.velocity_operator,
         material.phonon_freq,
+        material.linewidth,
         material.heat_capacity,
         material.volume,
     )
@@ -109,15 +132,17 @@ def test_solver_with_green_container(tmp_path):
 
 
 @pytest.mark.parametrize("material_path", [SI_INPUT_PATH, CSPBBR3_INPUT_PATH])
-def test_green_vs_iterative_solver(tmp_path, material_path):
+def test_green_vs_iterative_solver(material_path):
     """Test the Green's operator against an iterative solver and ensure that the Wigner distribution functions match."""
-    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
-    conv_thr = 1e-8
+    material = Material.from_phono3py(
+        material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
+    )
 
     source = source_term_gradT(
         DEFAULT_THERMAL_GRATING,
         material.velocity_operator,
         material.phonon_freq,
+        material.linewidth,
         material.heat_capacity,
         material.volume,
     )
@@ -127,9 +152,8 @@ def test_green_vs_iterative_solver(tmp_path, material_path):
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
-        outer_solver="root",
-        inner_solver="cgesv",
-        conv_thr=conv_thr,
+        outer_solver="none",
+        inner_solver="gmres",
     )
 
     iterative_solver.run()
@@ -147,9 +171,8 @@ def test_green_vs_iterative_solver(tmp_path, material_path):
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
-        outer_solver="root",
+        outer_solver="none",
         greens=[rgo],
-        conv_thr=conv_thr,
     )
     green_solver.run()
 

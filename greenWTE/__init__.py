@@ -7,3 +7,5 @@ import warnings
 warnings.filterwarnings(
     "ignore", category=FutureWarning, message=r".*`rcond` parameter will change to the default of machine precision.*"
 )
+
+__VERSION__ = "0.2.0"

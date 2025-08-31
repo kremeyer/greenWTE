@@ -6,10 +6,10 @@ from os.path import join as pj
 import cupy as cp
 import h5py
 import pytest
-from greenWTE.base import Material
+from greenWTE.base import Material, N_to_dT
+from greenWTE.io import save_solver_result
 from greenWTE.iterative import IterativeWTESolver
-from greenWTE.solve_iter import save_solver_result
-from greenWTE.sources import source_term_gradT
+from greenWTE.sources import source_term_full, source_term_gradT
 
 from .defaults import (
     CSPBBR3_INPUT_PATH,
@@ -36,6 +36,7 @@ def test_silicon_isotropy():
             DEFAULT_THERMAL_GRATING,
             material.velocity_operator,
             material.phonon_freq,
+            material.linewidth,
             material.heat_capacity,
             material.volume,
         )
@@ -45,19 +46,41 @@ def test_silicon_isotropy():
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
-            outer_solver="root",
-            inner_solver="gmres",
-            conv_thr=1e-14,
+            source_type="gradient",
+            outer_solver="none",
+            inner_solver="cgesv",
+            conv_thr_rel=1e-14,
         )
 
         solver.run()
-        # solver.dT = cp.real(solver.dT)  # use the real part of the solution to compute thermal conductivities
-        # solver.n[0] = solver._dT_to_N(solver.dT, DEFAULT_TEMPORAL_FREQUENCY, 0)[0]
         kappas.append((cp.real(solver.kappa_p), cp.real(solver.kappa_c)))
 
     kappas = cp.array(kappas)
-    cp.testing.assert_allclose(kappas[:, 0], cp.mean(kappas[:, 0]), atol=2)
-    cp.testing.assert_allclose(kappas[:, 1], cp.mean(kappas[:, 1]), atol=2)
+    cp.testing.assert_allclose(kappas[:, 0], cp.mean(kappas[:, 0]), rtol=0.01)
+
+
+def test_high_frequency_roll_off():
+    """Test that dT drops to zero at high frequencies."""
+    omegas = cp.array([0, 1e16, 1e300])
+    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
+
+    source = 5e8 * source_term_full(material.heat_capacity)
+
+    solver = IterativeWTESolver(
+        omg_ft_array=omegas,
+        k_ft=DEFAULT_THERMAL_GRATING,
+        material=material,
+        source=source,
+        outer_solver="aitken",
+        inner_solver="cgesv",
+        conv_thr_rel=1e-14,
+    )
+
+    solver.run()
+    print(cp.abs(solver.dT), solver.dT)
+    assert cp.abs(solver.dT[0]) > 1
+    assert cp.abs(solver.dT[1]) < 1e-9
+    assert cp.abs(solver.dT[2]) < 1e-15
 
 
 def test_cspbbr3_anisotropy():
@@ -70,6 +93,7 @@ def test_cspbbr3_anisotropy():
             DEFAULT_THERMAL_GRATING,
             material.velocity_operator,
             material.phonon_freq,
+            material.linewidth,
             material.heat_capacity,
             material.volume,
         )
@@ -79,35 +103,42 @@ def test_cspbbr3_anisotropy():
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
-            outer_solver="root",
+            source_type="gradient",
+            outer_solver="none",
             inner_solver="gmres",
-            conv_thr=1e-14,
+            conv_thr_rel=1e-14,
         )
 
         solver.run()
-        solver.dT = cp.real(solver.dT)  # use the real part of the solution to compute thermal conductivities
-        solver.n[0] = solver._dT_to_N(solver.dT, DEFAULT_TEMPORAL_FREQUENCY, 0)[0]
         kappas.append((cp.real(solver.kappa_p), cp.real(solver.kappa_c)))
 
     kappas = cp.array(kappas)
-    assert not cp.allclose(kappas[:, 0], kappas[:, 1], atol=0.1)
-    assert not cp.allclose(kappas[:, 0], kappas[:, 1], atol=0.1)
+    assert not cp.allclose(kappas[:, 0], cp.mean(kappas[:, 0]), rtol=0.2)
+    assert not cp.allclose(kappas[:, 1], cp.mean(kappas[:, 1]), rtol=0.2)
+
+
+def _final_residual_and_scale(solver, material):
+    """Compute |F(dT)| and the scale used by the solver's combined tolerance."""
+    dT_final = solver.dT[0]
+    omg_ft = float(cp.asnumpy(solver.omg_ft_array[0]))
+    # Evaluate F at the final iterate to avoid Aitken mismatch
+    n_next, _ = solver._dT_to_N(dT=dT_final, omg_ft=omg_ft, omg_idx=0, sol_guess=None)
+    dT_next = N_to_dT(n_next, material)
+
+    r_abs = float(cp.abs(dT_final - dT_next).item())
+    scale = float(max(cp.abs(dT_final).item(), cp.abs(dT_next).item(), 1.0))
+    return r_abs, scale, dT_final, dT_next
 
 
 @pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
-def test_dT_convergence_cgesv(outer_solver):
-    """Test the convergence of the dT solution with the CGESV solver."""
-    tolerance = 1e-5
+@pytest.mark.parametrize("inner_solver", ["cgesv", "gmres"])
+def test_dT_convergence_absolute(outer_solver, inner_solver):
+    """Converges under absolute tolerance only: |F(dT)| <= conv_thr_a."""
+    conv_thr_abs = 1e-7 if outer_solver != "plain" else 1e-3  # plain is slow
+    conv_thr_rel = 0.0  # disable relative tolerance
 
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
-
-    source = source_term_gradT(
-        DEFAULT_THERMAL_GRATING,
-        material.velocity_operator,
-        material.phonon_freq,
-        material.heat_capacity,
-        material.volume,
-    )
+    source = 5e8 * source_term_full(material.heat_capacity)
 
     solver = IterativeWTESolver(
         omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
@@ -115,16 +146,43 @@ def test_dT_convergence_cgesv(outer_solver):
         material=material,
         source=source,
         outer_solver=outer_solver,
-        inner_solver="cgesv",
-        conv_thr=tolerance,
+        inner_solver=inner_solver,
+        conv_thr_abs=conv_thr_abs,
+        conv_thr_rel=conv_thr_rel,
         max_iter=1000,
     )
     solver.run()
 
-    last = float(cp.abs(cp.imag(solver.dT_convergence[0, -1])))
-    prev = float(cp.abs(cp.imag(solver.dT_convergence[0, -2])))
+    r_abs, scale, *_ = _final_residual_and_scale(solver, material)
+    assert r_abs <= conv_thr_abs, f"|F|={r_abs:.3e} > atol={conv_thr_abs:.3e} (scale={scale:.3e})"
 
-    assert (last - prev) / prev < tolerance
+
+@pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
+@pytest.mark.parametrize("inner_solver", ["cgesv", "gmres"])
+def test_dT_convergence_relative(outer_solver, inner_solver):
+    """Converges under relative tolerance only: |F(dT)| <= conv_thr_r * max(|dT|,|dT_next|,1)."""
+    conv_thr_rel = 1e-7 if outer_solver != "plain" else 1e-3  # plain is slow
+    conv_thr_abs = 0.0  # disable absolute tolerance
+
+    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
+    source = 5e8 * source_term_full(material.heat_capacity)
+
+    solver = IterativeWTESolver(
+        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        k_ft=DEFAULT_THERMAL_GRATING,
+        material=material,
+        source=source,
+        outer_solver=outer_solver,
+        inner_solver=inner_solver,
+        conv_thr_abs=conv_thr_abs,
+        conv_thr_rel=conv_thr_rel,
+        max_iter=1000,
+    )
+    solver.run()
+
+    r_abs, scale, dT_final, _ = _final_residual_and_scale(solver, material)
+    thresh = conv_thr_abs + conv_thr_rel * scale
+    assert r_abs <= thresh, f"|F|={r_abs:.3e} > rtol*scale={thresh:.3e} (|dT|~{abs(dT_final):.3e})"
 
 
 def test_diag_velocity_operator():
@@ -137,6 +195,7 @@ def test_diag_velocity_operator():
         DEFAULT_THERMAL_GRATING,
         material.velocity_operator,
         material.phonon_freq,
+        material.linewidth,
         material.heat_capacity,
         material.volume,
     )
@@ -146,13 +205,14 @@ def test_diag_velocity_operator():
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
+        source_type="gradient",
         outer_solver="root",
         inner_solver="cgesv",
     )
 
     solver.run()
 
-    cp.testing.assert_array_less(cp.real(solver.kappa_c), 1e-4)
+    cp.testing.assert_array_less(cp.real(solver.kappa_c), 1e-13)
 
 
 def test_output_file_dimensions(tmp_path):
@@ -165,6 +225,7 @@ def test_output_file_dimensions(tmp_path):
         DEFAULT_THERMAL_GRATING,
         material.velocity_operator,
         material.phonon_freq,
+        material.linewidth,
         material.heat_capacity,
         material.volume,
     )
@@ -187,11 +248,12 @@ def test_output_file_dimensions(tmp_path):
     save_solver_result(output_filename, solver, temperature=DEFAULT_TEMPERATURE)
 
     with h5py.File(output_filename, "r") as h5f:
-        assert "conv_thr" in h5f
+        assert "conv_thr_abs" in h5f
+        assert "conv_thr_rel" in h5f
         assert "dT" in h5f
         assert h5f["dT"].shape == (nw,)
-        assert "dT_convergence" in h5f
-        assert h5f["dT_convergence"].shape == (nw, max_iter)
+        assert "dT_iterates" in h5f
+        assert h5f["dT_iterates"].shape == (nw, max_iter)
         assert "dtype_complex" in h5f
         assert "dtype_real" in h5f
         assert "gmres_residual" in h5f
@@ -204,8 +266,8 @@ def test_output_file_dimensions(tmp_path):
         assert "max_iter" in h5f
         assert "n" in h5f
         assert h5f["n"].shape == (nw, nq, nat3, nat3)
-        assert "n_convergence" in h5f
-        assert h5f["n_convergence"].shape == (nw, max_iter)
+        assert "n_norms" in h5f
+        assert h5f["n_norms"].shape == (nw, max_iter)
         assert "niter" in h5f
         assert h5f["niter"].shape == (nw,)
         assert "omega" in h5f

@@ -28,6 +28,10 @@ class IterativeWTESolver(SolverBase):
         (phonon frequencies, linewidths, heat capacities, etc.).
     source : cupy.ndarray
         Source term of the WTE, with shape ``(nq, nat3, nat3)``.
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
+        the offdiagonal elements are scaled by dT.
     max_iter : int, optional
         Maximum number of iterations for the **outer** solver (default is 100).
     conv_thr : float, optional
@@ -81,12 +85,15 @@ class IterativeWTESolver(SolverBase):
         k_ft: cp.ndarray,
         material: Material,
         source: cp.ndarray,
+        source_type: str = "energy",
         max_iter=100,
-        conv_thr=1e-12,
+        conv_thr_rel=1e-12,
+        conv_thr_abs=0,
         outer_solver="aitken",
         inner_solver="gmres",
         command_line_args=Namespace(),
-        residual_weights: tuple[float, float] = (1.0, 0.0),
+        dT_init: complex = 1.0 + 1.0j,
+        print_progress: bool = False,
     ) -> None:
         """Initialize IterativeWTESolver."""
         super().__init__(
@@ -94,11 +101,14 @@ class IterativeWTESolver(SolverBase):
             k_ft=k_ft,
             material=material,
             source=source,
+            source_type=source_type,
             max_iter=max_iter,
-            conv_thr=conv_thr,
+            conv_thr_rel=conv_thr_rel,
+            conv_thr_abs=conv_thr_abs,
             outer_solver=outer_solver,
             command_line_args=command_line_args,
-            residual_weights=residual_weights,
+            dT_init=dT_init,
+            print_progress=print_progress,
         )
         self.inner_solver = inner_solver
 
@@ -115,8 +125,10 @@ class IterativeWTESolver(SolverBase):
             k_ft=self.k_ft,
             material=self.material,
             source=self.source,
+            source_type=self.source_type,
             sol_guess=sol_guess,
             solver=self.inner_solver,
-            conv_thr=self.conv_thr,
-            progress=self.progress,
+            conv_thr_rel=self.conv_thr_rel,
+            conv_thr_abs=self.conv_thr_abs,
+            progress=self.verbose,
         )

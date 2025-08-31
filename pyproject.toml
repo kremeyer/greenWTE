@@ -23,9 +23,17 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
+testpaths = ["test/*.py"]
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
   "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",
   # Ignoe NumPy product deprecation emitted inside h5py
   "ignore: `product` is deprecated as of NumPy 1.25.0, and will be removed in NumPy 2.0. Please use `prod` instead.",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["greenWTE"]
+
+[too.coverage.report]
+show_missing = true

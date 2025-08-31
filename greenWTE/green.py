@@ -5,7 +5,7 @@ from argparse import Namespace
 
 import cupy as cp
 
-from .base import Material, SolverBase, dT_to_N_matmul
+from .base import Material, N_to_dT, SolverBase, dT_to_N_matmul
 from .io import GreenContainer
 
 
@@ -36,9 +36,7 @@ class RTAWignerOperator:
 
     def __len__(self):
         """Return the number of q-points in the Wigner operator."""
-        if self._op is None:
-            raise RuntimeError("Wigner operator not computed yet.")
-        return len(self._op)
+        return self.nq
 
     def __iter__(self):
         """Allow iteration over the Wigner operators q-points."""
@@ -72,7 +70,7 @@ class RTAWignerOperator:
             # term2 = (k_ft / 2) * (cp.kron(I_small, gv_op) + cp.kron(gv_op.T, I_small))
             term2 = (self.k_ft / 2) * (
                 cp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(self.nat3**2, self.nat3**2)
-                + cp.einsum("ij,kl->ikjl", gv_op.conj().T, I_small).reshape(self.nat3**2, self.nat3**2)
+                + cp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(self.nat3**2, self.nat3**2)
             )
             # term3 = 0.5 * (cp.kron(I_small, GAM) + cp.kron(GAM, I_small))
             term3 = 0.5 * (
@@ -94,7 +92,7 @@ class GreenOperatorBase(ABC):
     def _require_ready(self):
         """Ensure the Green's operator is computed before accessing it."""
         if self._green is None:
-            raise RuntimeError("Green's operator not computed yet. Call compute() first.")
+            raise RuntimeError("Green's operator not computed yet.")
 
     def __getitem__(self, iq):
         """Allow indexing to access the Green's function for a specific q-point."""
@@ -141,7 +139,7 @@ class GreenOperatorBase(ABC):
 
     def __repr__(self):
         """Return a string representation of the Green's operator."""
-        return f"<RTAGreenOperator: {len(self)} q-points at w={self.omg_ft:.2e} with dtype={self.dtypec.__name__}>"
+        return f"<RTAGreenOperator: {len(self)} q-points at w={self.omg_ft:.2e} with dtype={self.dtypec}>"
 
     @abstractmethod
     def compute(self, recompute=False, **kwargs):
@@ -188,8 +186,9 @@ class RTAGreenOperator(GreenOperatorBase):
 
         self._green = cp.zeros_like(self.wigner_operator._op, dtype=self.dtypec)
 
-        for ii in range(len(self.wigner_operator)):
-            self._green[ii] = cp.linalg.inv(self.wigner_operator[ii])
+        # for ii in range(len(self.wigner_operator)):
+        #     self._green[ii] = cp.linalg.pinv(self.wigner_operator[ii])
+        self._green = cp.linalg.inv(self.wigner_operator._op)
 
         if clear_wigner:
             self.wigner_operator._op = None
@@ -207,7 +206,7 @@ class DiskGreenOperator(GreenOperatorBase):
         omg_ft: float,
         k_ft: float,
         material: Material,
-        atol: float = 1e-6,
+        atol: float = 0.0,
         as_gpu: bool = True,
     ):
         """Initialize the disk-based Green's operator."""
@@ -254,6 +253,10 @@ class GreenWTESolver(SolverBase):
         (phonon frequencies, linewidths, heat capacities, etc.).
     source : cupy.ndarray
         Source term of the WTE, with shape ``(nq, nat3, nat3)``.
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
+        the offdiagonal elements are scaled by dT.
     greens : list of RTAGreenOperator
         List of precomputed Green's function operators, one for each
         ``omg_ft`` value in `omg_ft_array`. Each operator must implement
@@ -301,18 +304,23 @@ class GreenWTESolver(SolverBase):
 
     """
 
+    inner_solver = "None"  # no need for inner solver; string because we want to write that to hdf5
+
     def __init__(
         self,
         omg_ft_array: cp.ndarray,
         k_ft: cp.ndarray,
         material: Material,
-        source: cp.ndarray,
         greens: list[RTAGreenOperator],
+        source: cp.ndarray,
+        source_type: str = "energy",
         max_iter=100,
-        conv_thr=1e-12,
+        conv_thr_rel=1e-12,
+        conv_thr_abs=0,
         outer_solver="root",
         command_line_args=Namespace(),
-        residual_weights: tuple[float, float] = (1.0, 0.0),
+        dT_init: complex = 1.0 + 1.0j,
+        print_progress: bool = False,
     ) -> None:
         """Initialize GreenWTESolver."""
         super().__init__(
@@ -320,11 +328,14 @@ class GreenWTESolver(SolverBase):
             k_ft=k_ft,
             material=material,
             source=source,
+            source_type=source_type,
             max_iter=max_iter,
-            conv_thr=conv_thr,
+            conv_thr_rel=conv_thr_rel,
+            conv_thr_abs=conv_thr_abs,
             outer_solver=outer_solver,
             command_line_args=command_line_args,
-            residual_weights=residual_weights,
+            dT_init=dT_init,
+            print_progress=print_progress,
         )
         if not len(greens) == len(omg_ft_array):
             raise ValueError("Number of Green's operators must match the number of omg_ft values.")
@@ -342,15 +353,16 @@ class GreenWTESolver(SolverBase):
             material=self.material,
             green=self.greens[omg_idx],
             source=self.source,
+            source_type=self.source_type,
         )
         return n, [[] for _ in range(self.material.nq)]  # no residuals from matrix multiplication
 
-    def run(self):
+    def run(self, free=True):
         """Run the WTE solver for each temporal Fourier variable in omg_ft_array.
 
         This method uses the specified outer solver (Aitken, plain, or root) to solve the WTE for each omg_ft in
         omg_ft_array. After running, the results are stored in the class attributes dT, dT_init, n, niter,
-        n_convergence, iter_time_list, dT_convergence_list, n_convergence_list, and gmres_residual_list.
+        n_norms, iter_time_list, dT_iterates_list, n_norms_list, and gmres_residual_list.
         """
         if self.outer_solver == "aitken":
             run_func = self._run_solver_aitken
@@ -358,6 +370,9 @@ class GreenWTESolver(SolverBase):
             run_func = self._run_solver_plain
         elif self.outer_solver == "root":
             run_func = self._run_solver_root
+        elif self.outer_solver == "none":
+            run_func = self._run_solver_none
+            self.max_iter = 1  # just for print formatting
         else:
             raise ValueError(f"Unknown outer solver: {self.outer_solver}")
 
@@ -370,8 +385,8 @@ class GreenWTESolver(SolverBase):
             self.n[i] = ret[3]
             self.niter[i] = ret[4]
             self.iter_time_list.append(ret[5])
-            self.dT_convergence_list.append(ret[6])
-            self.n_convergence_list.append(ret[7])
+            self.dT_iterates_list.append(ret[6])
+            self.n_norms_list.append(ret[7])
             self.gmres_residual_list.append(ret[8])
 
             # check self-consistency by checking norm(n(dT) - n)
@@ -383,21 +398,26 @@ class GreenWTESolver(SolverBase):
                 sol_guess=None,
             )
             n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
-            self.n_convergence_list[i].append(n_step_norm)
+            theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
+            self.n_norms_list[i].append(n_step_norm)
 
-            if self.progress:
-                print("")
-            width = len(str(len(self.omg_ft_array)))
-            print(
-                f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
-                f"k={self.k_ft:.2e} "
-                f"w={omg_ft:.2e} "
-                f"dT={self.dT[i]: .2e} "
-                f"nit={self.niter[i]: 4d} "
-                f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
-                f"n_conv={n_step_norm:.1e} "
-            )
+            if self.print_progress:
+                if self.verbose:
+                    print("")
+                width = len(str(len(self.omg_ft_array)))
+                print(
+                    f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
+                    f"k={self.k_ft:.2e} "
+                    f"w={omg_ft:.2e} "
+                    f"dT={self.dT[i]: .2e} "
+                    f"n_it={self.niter[i]:{int(cp.log10(self.max_iter)) + 1}d} "
+                    f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
+                    f"n_conv={n_step_norm:.1e} "
+                    f"dT_conv={cp.abs(self.dT[i] - theoretical_next_dT) / cp.abs(self.dT[i]):.1e} "
+                    f"dT_next={theoretical_next_dT: .1e}"
+                )
 
-            g.free()  # free memory used by the Green's operator
+            if free:
+                g.free()  # free memory allocated to the Green's operator
 
         self._solution_lists_to_arrays()

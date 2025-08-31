@@ -10,9 +10,11 @@ import contextlib
 import json
 from typing import Protocol, runtime_checkable
 
+import bitshuffle.h5
 import cupy as cp
 import h5py
 import numpy as np
+from scipy.constants import elementary_charge
 
 SCHEMA = "rta-greens/1"
 
@@ -82,7 +84,7 @@ def _find_or_append_1d(dset, value, atol=0.0):
 
 def _find_index_1d(dset, value, atol=0.0):
     """Fint index of `value` in a 1D dataset."""
-    val = float(np.asarray(value))
+    val = float(value)
     data = dset[...]
     for i, v in enumerate(data):
         if np.allclose(v, val, atol=atol):
@@ -109,16 +111,20 @@ class GreenContainer:
     ----------
     path : str
         Path to the HDF5 file. Created if it does not exist.
-    nat3 : int
-        Number of atoms times 3; defines the block size of the operator.
-    nq : int
-        Number of q-points.
+    nat3 : int, optional
+        Number of atoms times 3; defines the block size of the operator. Only required
+        if this is a new Green's function file. Read from file if None.
+    nq : int, optional
+        Number of q-points. Only required if this is a new Green's function file. Read from file if None.
     dtype : dtype or str, optional
         Complex or real data type for storage. Default is `cp.complex128`.
     meta : dict, optional
         Additional metadata to store in the file root attributes.
     tile_B : int, optional
         Block size for chunking the matrix dimensions. Default is 512.
+    read_only : bool, optional
+        If True, open the file in read-only mode. Default is False. This will allow multiple readers to access
+        the file simultaneously.
 
     Attributes
     ----------
@@ -137,17 +143,24 @@ class GreenContainer:
 
     """
 
-    def __init__(self, path, nat3, nq, dtype=cp.complex128, meta=None, tile_B=512):
+    def __init__(self, path, nat3=None, nq=None, dtype=cp.complex128, meta=None, tile_B=512, read_only=False):
         """Initialize the GreenContainer."""
         self.path = path
-        self.nat3 = int(nat3)
-        self.nq = int(nq)
+        if nat3 is None:
+            self.nat3 = int(h5py.File(path, "r").attrs["nat3"])
+        else:
+            self.nat3 = nat3
+        if nq is None:
+            self.nq = int(h5py.File(path, "r").attrs["nq"])
+        else:
+            self.nq = nq
         self.m = self.nat3**2
         self.dtype = np.dtype(dtype)
         self.meta = meta or {}
         self.B = min(int(tile_B), self.m)
 
-        self.f = h5py.File(path, "a", libver="latest", rdcc_nbytes=512 * 1024 * 1024, rdcc_w0=0.9)
+        mode = "r" if read_only else "a"
+        self.f = h5py.File(path, mode, libver="latest", rdcc_nbytes=512 * 1024 * 1024, rdcc_w0=0.9)
 
         # Root attrs
         if "schema" not in self.f.attrs:
@@ -158,6 +171,10 @@ class GreenContainer:
             self.f.attrs["dtype"] = str(self.dtype)
             if self.meta:
                 self.f.attrs["meta"] = json.dumps(self.meta)
+        else:
+            on_disk_dtype = cp.dtype(self.f.attrs["dtype"])
+            if on_disk_dtype != self.dtype:
+                raise TypeError(f"Data type mismatch: {on_disk_dtype} (on disk) != {self.dtype} (requested)")
 
         # Always create 1D index datasets up front
         self.ds_w = _ensure(self.f, "omega", shape=(0,), maxshape=(None,), chunks=(1024,), dtype=np.float64)
@@ -192,8 +209,8 @@ class GreenContainer:
             maxshape=(None, None, self.nq, self.m, self.m),
             chunks=(1, 1, 1, self.B, self.B),
             dtype=self.dtype,
-            compression="gzip",
-            shuffle=True,
+            compression=bitshuffle.h5.H5FILTER,
+            compression_opts=(0, bitshuffle.h5.H5_COMPRESS_LZ4),
         )
         self.ds_mask = _ensure(
             self.f,
@@ -293,10 +310,37 @@ class GreenContainer:
             True if the block exists, False otherwise.
 
         """
-        iw, ik = self.indices(w, k, atol=atol)
-        if not self._have_main:
+        try:
+            iw, ik = self.find_indices(w, k, atol=atol)
+        except KeyError:
             return False
         return bool(self.ds_mask[iw, ik, int(q)])
+
+    def has_bz_block(self, w, k, atol=0.0) -> bool:
+        """Check whether a Green's operator block exists for the full Brillouin zone.
+
+        Parameters
+        ----------
+        w : float
+            Frequency value.
+        k : float
+            Wavevector magnitude.
+        atol : float, optional
+            Absolute tolerance for matching omega/k.
+
+        Returns
+        -------
+        bool
+            True if the block exists, False otherwise.
+
+        """
+        try:
+            iw, ik = self.find_indices(w, k, atol=atol)
+        except KeyError:
+            return False
+        if not self._have_main:
+            return False
+        return np.all(self.ds_mask[iw, ik, :])
 
     def get(self, w, k, q, as_gpu=True, atol=0.0):
         """Retrieve a stored Green's operator block.
@@ -319,8 +363,13 @@ class GreenContainer:
         numpy.ndarray or cupy.ndarray
             The `(m, m)` operator block.
 
+        Raises
+        ------
+        KeyError
+            If the requested block is not found.
+
         """
-        iw, ik = self.indices(w, k, atol=atol)
+        iw, ik = self.find_indices(w, k, atol=atol)
         if not self._have_main or not bool(self.ds_mask[iw, ik, int(q)]):
             raise KeyError(f"Requested block w={w}, k={k}, q={q} not found.")
         out = self.ds_tens[iw, ik, int(q), :, :][...]  # NumPy array
@@ -344,6 +393,11 @@ class GreenContainer:
         -------
         numpy.ndarray or cupy.ndarray
             The `(nq, m, m)` array of operator blocks for the specified (w, k).
+
+        Raises
+        ------
+        KeyError
+            If the requested block is not found.
 
         """
         iw, ik = self.find_indices(w, k, atol=atol)
@@ -385,14 +439,14 @@ class GreenContainer:
         if arr.shape != (self.m, self.m):
             raise ValueError(f"Data shape {arr.shape} != {(self.m, self.m)}.")
         if arr.dtype != self.ds_tens.dtype:
-            arr = arr.astype(self.ds_tens.dtype, copy=False)
+            raise TypeError(f"dtype mismatch: data {arr.dtype} != {self.ds_tens.dtype}")
         self.ds_tens[iw, ik, int(q), :, :] = arr
         self.ds_mask[iw, ik, int(q)] = 1
         if flush:
             self.f.flush()
 
     def put_bz_block(self, w, k, data, atol=0.0, flush=True):
-        """Store all clocks of the Brillouin zone for a specific (omega, k) pair.
+        """Store all blocks of the Brillouin zone for a specific (omega, k) pair.
 
         Parameters
         ----------
@@ -417,24 +471,112 @@ class GreenContainer:
         # ensure main exists (it will after indices())
         if not self._have_main:
             self._ensure_main()
-        if isinstance(data, GreenOperatorLike):
-            arr = data._green
+        arr = data._green if isinstance(data, GreenOperatorLike) else data
         arr = arr.get() if isinstance(arr, cp.ndarray) else arr
         if arr.shape != (self.nq, self.m, self.m):
             raise ValueError(f"Data shape {arr.shape} != {(self.nq, self.m, self.m)}.")
         if arr.dtype != self.ds_tens.dtype:
-            arr = arr.astype(self.ds_tens.dtype, copy=False)
+            raise TypeError(f"dtype mismatch: data {arr.dtype} != {self.ds_tens.dtype}")
         self.ds_tens[iw, ik, :, :, :] = arr
         self.ds_mask[iw, ik, :] = 1
         if flush:
             self.f.flush()
 
-    @property
-    def omegas(self):
+    def omegas(self, k=None):
         """Return all stored omega values."""
-        return self.ds_w[...]
+        if k is None:
+            return self.ds_w[...]
+        ik = _find_index_1d(self.ds_k, k)
+        if ik < 0:
+            return
+        return self.ds_w[...][self.ds_mask[:, ik, :].any(axis=1)]
 
-    @property
-    def ks(self):
+    def ks(self, w=None):
         """Return all stored k values."""
-        return self.ds_k[...]
+        if w is None:
+            return self.ds_k[...]
+        iw = _find_index_1d(self.ds_w, w)
+        if iw < 0:
+            return
+        return self.ds_k[...][self.ds_mask[:, :, iw].any(axis=1)]
+
+
+def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
+    """Load data from a phono3py-generated HDF5 file."""
+    with h5py.File(filename, "r") as h5f:
+        available_temperatures = list(h5f["temperature"][()])
+        if temperature in available_temperatures:
+            temperature_index = available_temperatures.index(temperature)
+        else:
+            raise ValueError(
+                f"Temperature {temperature} not found in the input file."
+                f"Available temperatures: {available_temperatures}"
+            )
+        q_idx = int(exclude_gamma)
+        velocity_operator = (
+            cp.array(h5f["velocity_operator_sym"][q_idx:, ..., dir_idx], dtype=dtypec) * 1e2
+        )  # (nq, nat3, nat3) | m/s
+        phonon_freq = cp.array(h5f["frequency"][q_idx:], dtype=dtyper) * 1e12 * 2 * cp.pi  # (nq, nat3) | Hz
+        linewidth = cp.array(h5f["gamma"][temperature_index, q_idx:], dtype=dtyper)  # (nT, nq, nat3)
+        linewidth += cp.array(h5f["gamma_isotope"][q_idx:], dtype=dtyper)  # (nq, nat3)
+        linewidth += cp.array(h5f["gamma_boundary"][q_idx:], dtype=dtyper)  # (nq, nat3)
+        linewidth *= 1e12 * 2 * cp.pi  # Hz | ordinal to angular frequency
+        linewidth *= 2  # HWHM -> FWHM
+        volume = cp.array(h5f["volume"][()], dtype=dtyper) * 1e-30  # m^3
+        weight = cp.array(h5f["weight"][q_idx:], dtype=dtyper)  # nq | 1
+        weight /= cp.sum(weight)
+        heat_capacity = (
+            cp.array(h5f["heat_capacity"][temperature_index, q_idx:], dtype=dtyper) * elementary_charge
+        )  # (nT, nq, nat3) | J/K
+        heat_capacity *= weight[:, None] / volume  # (nq, nat3) | J/(K m^3)
+
+    return (
+        velocity_operator,
+        phonon_freq,
+        linewidth,
+        heat_capacity,
+        volume,
+        weight,
+    )
+
+
+def save_solver_result(filename, solver, **kwargs):
+    """Save the solver results to an HDF5 file."""
+    with h5py.File(filename, "w") as h5f:
+        h5f.create_dataset("dT", data=solver.dT.get())
+        h5f.create_dataset("dT_init", data=solver.dT_init.get())
+        h5f.create_dataset("n", data=solver.n.get())
+        h5f.create_dataset("niter", data=solver.niter.get())
+        h5f.create_dataset("iter_time", data=solver.iter_time.get())
+        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())
+        h5f.create_dataset("dT_iterates", data=solver.dT_iterates.get())
+        h5f.create_dataset("n_norms", data=solver.n_norms.get())
+        h5f.create_dataset("source", data=solver.source.get())
+
+        h5f.create_dataset("omega", data=solver.omg_ft_array.get())
+        h5f.create_dataset("k", data=solver.k_ft)
+        h5f.create_dataset("max_iter", data=solver.max_iter)
+        h5f.create_dataset("conv_thr_rel", data=solver.conv_thr_rel)
+        h5f.create_dataset("conv_thr_abs", data=solver.conv_thr_abs)
+        h5f.create_dataset("dtype_real", data=str(solver.material.dtyper))
+        h5f.create_dataset("dtype_complex", data=str(solver.material.dtypec))
+        h5f.create_dataset("outer_solver", data=solver.outer_solver)
+        h5f.create_dataset("inner_solver", data=solver.inner_solver)
+
+        h5f.create_dataset("kappa", data=solver.kappa.get())
+        h5f.create_dataset("kappa_P", data=solver.kappa_p.get())
+        h5f.create_dataset("kappa_C", data=solver.kappa_c.get())
+
+        for key, value in vars(solver.command_line_args).items():
+            if key in h5f:
+                continue
+            if isinstance(value, cp.ndarray):
+                h5f.create_dataset(key, data=value.get())
+            else:
+                h5f.create_dataset(key, data=value)
+
+        for key, value in kwargs.items():
+            if isinstance(value, cp.ndarray):
+                h5f.create_dataset(key, data=value.get())
+            else:
+                h5f.create_dataset(key, data=value)

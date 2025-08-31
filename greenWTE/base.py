@@ -21,10 +21,6 @@ class Material:
     phono3py calculation.
     """
 
-    _degeneracy_mask = None
-    _degeneracy_mask_offdiag = None
-    _degeneracy_cache_key = None  # (tol, nq, nat3, id(phonon_freq))
-
     def __init__(
         self,
         temperature,
@@ -34,7 +30,6 @@ class Material:
         heat_capacity,
         volume,
         name=None,
-        degeneracy_tol=1e-7,
     ):
         """Initialize the Material class with physical properties."""
         self.temperature = temperature
@@ -48,12 +43,9 @@ class Material:
         self.name = name
         self.nq = self.phonon_freq.shape[0]
         self.nat3 = self.phonon_freq.shape[1]
-        self._degeneracy_tol = degeneracy_tol
 
     @classmethod
-    def from_phono3py(
-        cls, filename, temperature, dir_idx=0, dtyper=cp.float64, dtypec=cp.complex128, degeneracy_tol=1e-7
-    ):
+    def from_phono3py(cls, filename, temperature, dir_idx=0, dtyper=cp.float64, dtypec=cp.complex128):
         """Load material properties from a phono3py output file.
 
         Parameters
@@ -68,8 +60,6 @@ class Material:
             The data type for the real parts of the matrices, default is cp.float64.
         dtypec : cupy.dtype, optional
             The data type for the complex matrices, default is cp.complex128.
-        degeneracy_tol : float, optional
-            The degeneracy tolerance for the material, default is 1e-7.
 
         Returns
         -------
@@ -77,7 +67,7 @@ class Material:
             An instance of the Material class with the loaded properties.
 
         """
-        from .solve_iter import load_phono3py_data
+        from .io import load_phono3py_data
 
         velocity_operator, phonon_freq, linewidth, heat_capacity, volume, _ = load_phono3py_data(
             filename, temperature=temperature, dir_idx=dir_idx, dtyper=dtyper, dtypec=dtypec
@@ -90,7 +80,6 @@ class Material:
             heat_capacity,
             volume,
             name=filename,
-            degeneracy_tol=degeneracy_tol,
         )
 
     def __repr__(self):
@@ -107,62 +96,7 @@ class Material:
             heat_capacity=self.heat_capacity[iq][None, ...],
             volume=self.volume,
             name=self.name,
-            degeneracy_tol=self.degeneracy_tol,
         )
-
-    @property
-    def degeneracy_tol(self):
-        """Get the degeneracy tolerance.
-
-        This value is a relative to the maximum phonon frequency per q-point.
-        """
-        return self._degeneracy_tol
-
-    @degeneracy_tol.setter
-    def degeneracy_tol(self, value):
-        new_tol = value
-        if new_tol != self.degeneracy_tol:
-            self._degeneracy_tol = new_tol
-            self._degeneracy_mask = None
-            self._degeneracy_mask_offdiag = None
-
-    def _compute_degeneracy_masks(self):
-        """Compute the degeneracy masks for the materials phonon system."""
-        key = (self._degeneracy_tol, self.nq, self.nat3, int(self.phonon_freq.data.ptr))
-        if key == self._degeneracy_cache_key and self._degeneracy_mask is not None:
-            return  # up to date
-        deg, off = _degeneracy_mask(self.phonon_freq, self._degeneracy_tol)
-        self._degeneracy_mask = deg
-        self._degeneracy_mask_offdiag = off
-        self._degeneracy_cache_key = key
-
-    @property
-    def degeneracy_mask(self) -> cp.ndarray:
-        """Boolean mask of degenerate pairs per q-point.
-
-        Returns
-        -------
-        cupy.ndarray
-            Array of shape ``(nq, nat3, nat3)`` with ``True`` where modes
-            ``i`` and ``j`` are considered degenerate at that ``q`` (includes the diagonal).
-
-        """
-        self._compute_degeneracy_masks()
-        return self._degeneracy_mask
-
-    @property
-    def degeneracy_mask_offdiag(self) -> cp.ndarray:
-        """Boolean mask of non-degenerate off-diagonal pairs per q-point.
-
-        Returns
-        -------
-        cupy.ndarray
-            Array of shape ``(nq, nat3, nat3)`` with ``True`` where ``i != j`` and
-            the pair is **not** considered degenerate at that ``q``.
-
-        """
-        self._compute_degeneracy_masks()
-        return self._degeneracy_mask_offdiag
 
 
 class AitkenAccelerator:
@@ -213,8 +147,8 @@ class AitkenAccelerator:
 def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128):
     """Estimate the initial temperature change dT for a given temporal Fourier variable omg_ft.
 
-    We try to interpolate
-    the dT values from the history of previous omg_ft values. If no history is available, we return a default of 1e-6.
+    Try to interpolate the dT values from the history of previous omg_ft values. If no history is available, we
+    return a default of (1.0+1.0j).
 
     Parameters
     ----------
@@ -234,7 +168,7 @@ def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128
 
     """
     if not history:
-        return cp.asarray((1 + 1j))
+        return cp.asarray((1.0 + 1.0j))
 
     omg_fts, dTs = zip(*sorted(history))
     omg_fts = cp.asarray(omg_fts, dtype=dtyper)
@@ -294,8 +228,6 @@ class SolverBase(ABC):
     command_line_args : argparse.Namespace, optional
         Optional namespace of parsed command-line arguments for controlling
         solver behavior or I/O (default is an empty Namespace).
-    residual_weights : tuple[float, float], optional
-        Weights for the real and imaginary parts of the residual (default is (1.0, 0.0)).
 
     Attributes
     ----------
@@ -311,10 +243,10 @@ class SolverBase(ABC):
         shape ``(n_omg_ft,)``.
     iter_time_list : list of list of float
         Iteration times (seconds) for each frequency.
-    dT_convergence_list : list of list of complex
+    dT_iterates_list : list of list of complex
         Sequence of `dT` values over iterations for each frequency.
-    n_convergence_list : list of list of float
-        Sequence of relative changes in `n` over iterations for each frequency.
+    n_norm_list : list of list of float
+        Sequence of norms in `n` over iterations for each frequency.
     gmres_residual_list : list
         GMRES residuals from the inner solver (if applicable).
     history : list of tuple
@@ -344,20 +276,27 @@ class SolverBase(ABC):
         k_ft: float,
         material: Material,
         source: cp.ndarray,
-        *,
+        source_type: str = "energy",
+        dT_init: complex = 1.0 + 1.0j,
         max_iter: int = 100,
-        conv_thr: float = 1e-12,
+        conv_thr_rel: float = 1e-12,
+        conv_thr_abs: float = 0,
         outer_solver: str = "root",
         command_line_args=Namespace(),
-        residual_weights: tuple[float, float] = (1.0, 0.0),
+        print_progress: bool = False,
     ):
         """Initialize SolverBase."""
-        self.omg_ft_array = omg_ft_array
+        self.omg_ft_array = cp.asarray(omg_ft_array)
         self.k_ft = k_ft
         self.material = material
         self.source = source
+        if source_type in ["energy", "gradient"]:
+            self.source_type = source_type
+        else:
+            raise ValueError(f"Unknown source type: {source_type}")
         self.max_iter = max_iter
-        self.conv_thr = conv_thr
+        self.conv_thr_rel = conv_thr_rel
+        self.conv_thr_abs = conv_thr_abs
         self.outer_solver = outer_solver
         self.command_line_args = command_line_args
         self.dtyper = material.dtyper
@@ -368,34 +307,47 @@ class SolverBase(ABC):
         self.history = []
         self.dT = cp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
         self.dT_init = cp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
+        self.dT_init_user = dT_init
         self.n = cp.zeros((self.omg_ft_array.shape[0], self.nq, self.nat3, self.nat3), dtype=self.dtypec)
         self.niter = cp.zeros(self.omg_ft_array.shape[0], dtype=cp.int32)
         self.iter_time_list = []
-        self.dT_convergence_list = []
-        self.n_convergence_list = []
+        self.dT_iterates_list = []
+        self.n_norms_list = []
         self.gmres_residual_list = []
-        self.progress = self.omg_ft_array.shape[0] == 1
-        self._wR = residual_weights[0]
-        self._wI = residual_weights[1]
+        self.verbose = self.omg_ft_array.shape[0] == 1 and print_progress
+        self.print_progress = print_progress
 
     @abstractmethod
     def _dT_to_N(
         self,
         dT: complex,
         omg_ft: float,
-        *,
         omg_idx: int,
         sol_guess: cp.ndarray | None = None,
     ) -> tuple[cp.ndarray, list]:
         """Implement by subclasses to solve for the Wigner distribution function n from dT."""
-        pass
+
+    def _dT_converged(self, dT, dT_new):
+        """Check convergence in dT.
+
+        Returns
+        -------
+        bool
+            True if dT has converged, False otherwise.
+
+        """
+        r = dT - dT_new
+        r_abs = float(cp.abs(r).item())
+        scale = float(max(cp.abs(dT).item(), cp.abs(dT_new).item(), 1.0))
+        thresh = self.conv_thr_abs + self.conv_thr_rel * scale
+        return r_abs <= thresh
 
     def run(self):
         """Run the WTE solver for each temporal Fourier variable in omg_ft_array.
 
         This method uses the specified outer solver (Aitken, plain, or root) to solve the WTE for each omg_ft in
         omg_ft_array. After running, the results are stored in the class attributes dT, dT_init, n, niter,
-        n_convergence, iter_time_list, dT_convergence_list, n_convergence_list, and gmres_residual_list.
+        n_norms, iter_time_list, dT_iterates_list, n_norm_list, and gmres_residual_list.
         """
         if self.outer_solver == "aitken":
             run_func = self._run_solver_aitken
@@ -403,6 +355,9 @@ class SolverBase(ABC):
             run_func = self._run_solver_plain
         elif self.outer_solver == "root":
             run_func = self._run_solver_root
+        elif self.outer_solver == "none":
+            run_func = self._run_solver_none
+            self.max_iter = 1  # just for string formatting
         else:
             raise ValueError(f"Unknown outer solver: {self.outer_solver}")
 
@@ -413,8 +368,8 @@ class SolverBase(ABC):
             self.n[i] = ret[3]
             self.niter[i] = ret[4]
             self.iter_time_list.append(ret[5])
-            self.dT_convergence_list.append(ret[6])
-            self.n_convergence_list.append(ret[7])
+            self.dT_iterates_list.append(ret[6])
+            self.n_norms_list.append(ret[7])
             self.gmres_residual_list.append(ret[8])
 
             # check self-consistency by checking norm(n(dT) - n)
@@ -426,20 +381,24 @@ class SolverBase(ABC):
                 sol_guess=None,
             )
             n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
-            self.n_convergence_list[i].append(n_step_norm)
+            theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
+            self.n_norms_list[i].append(n_step_norm)
 
-            if self.progress:
-                print("")
-            width = len(str(len(self.omg_ft_array)))
-            print(
-                f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
-                f"k={self.k_ft:.2e} "
-                f"w={omg_ft:.2e} "
-                f"dT={self.dT[i]: .2e} "
-                f"nit={self.niter[i]: 4d} "
-                f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
-                f"n_conv={n_step_norm:.1e} "
-            )
+            if self.print_progress:
+                if self.verbose:
+                    print("")
+                width = len(str(len(self.omg_ft_array)))
+                print(
+                    f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
+                    f"k={self.k_ft:.2e} "
+                    f"w={omg_ft:.2e} "
+                    f"dT={self.dT[i]: .2e} "
+                    f"n_it={self.niter[i]:{int(cp.log10(self.max_iter)) + 1}d} "
+                    f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
+                    f"n_conv={n_step_norm:.1e} "
+                    f"dT_conv={cp.abs(self.dT[i] - theoretical_next_dT) / cp.abs(self.dT[i]):.1e} "
+                    f"dT_next={theoretical_next_dT: .1e}"
+                )
 
         self._solution_lists_to_arrays()
 
@@ -467,23 +426,26 @@ class SolverBase(ABC):
             The number of iterations taken for the outer solver to converge for the given omg_ft.
         iter_times : list
             A list of iteration times for the outer solver for the given omg_ft.
-        dT_convergence : list
-            A list of convergence values for the temperature changes dT for the given omg_ft.
-        n_convergence : list
-            A list of convergence values for the wigner distribution function n for the given omg_ft.
+        dT_iterates : list
+            A list of iteration values for the temperature changes dT for the given omg_ft.
+        n_norms : list
+            A list of norms for the wigner distribution function n for the given omg_ft.
         gmres_residual : list
             A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
 
         """
         accelerator = AitkenAccelerator()
-        dT_init = estimate_initial_dT(
-            omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
-        )
+        if self.history:
+            dT_init = estimate_initial_dT(
+                omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
+            )
+        else:
+            dT_init = self.dT_init_user
         dT = dT_init
         n = None
         iter_times = []
-        dT_convergence = []
-        n_convergence = []
+        dT_iterates = []
+        n_norms = []
         gmres_residual = []
 
         iterations = 0
@@ -500,22 +462,21 @@ class SolverBase(ABC):
             )
             gmres_residual.append(resid)
             dT_new = N_to_dT(n, self.material)
-            r = dT - dT_new
-            r_norm = float(np.hypot(self._wR * cp.real(r).item(), self._wI * cp.imag(r).item()))
-            dT_convergence.append(dT_new)
+            converged = self._dT_converged(dT, dT_new)
+            dT_iterates.append(dT_new)
             dT = accelerator.update(dT_new)
 
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
                 n_step_norm = cp.linalg.norm(n - n_prev) / cp.linalg.norm(n_prev)
-                n_convergence.append(n_step_norm)
+                n_norms.append(n_step_norm)
 
-            if np.abs(r_norm) < self.conv_thr:
+            if converged:
                 self.history.append((omg_ft, dT_new))
                 break
 
-        return omg_ft, dT, dT_init, n, iterations, iter_times, dT_convergence, n_convergence, gmres_residual
+        return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _run_solver_plain(self, omg_idx, omg_ft):
         """Run the WTE solver without acceleration, iterating until convergence.
@@ -541,22 +502,25 @@ class SolverBase(ABC):
             The number of iterations taken for the outer solver to converge for the given omg_ft.
         iter_times : list
             A list of iteration times for the outer solver for the given omg_ft.
-        dT_convergence : list
-            A list of convergence values for the temperature changes dT for the given omg_ft.
-        n_convergence : list
-            A list of convergence values for the wigner distribution function n for the given omg_ft.
+        dT_iterates : list
+            A list of iteration values for the temperature changes dT for the given omg_ft.
+        n_norms : list
+            A list of norms for the wigner distribution function n for the given omg_ft.
         gmres_residual : list
             A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
 
         """
-        dT_init = estimate_initial_dT(
-            omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
-        )
+        if self.history:
+            dT_init = estimate_initial_dT(
+                omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
+            )
+        else:
+            dT_init = self.dT_init_user
         dT = dT_init
         n = None
         iter_times = []
-        dT_convergence = []
-        n_convergence = []
+        dT_iterates = []
+        n_norms = []
         gmres_residual = []
 
         iterations = 0
@@ -574,22 +538,50 @@ class SolverBase(ABC):
             gmres_residual.append(resid)
 
             dT_new = N_to_dT(n, self.material)
-            r = dT - dT_new
-            r_norm = float(np.hypot(self._wR * cp.real(r).item(), self._wI * cp.imag(r).item()))
-            dT_convergence.append(dT_new)
+            converged = self._dT_converged(dT, dT_new)
+            dT_iterates.append(dT_new)
             dT = dT_new
 
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
                 n_step_norm = cp.linalg.norm(n - n_prev) / cp.linalg.norm(n_prev)
-                n_convergence.append(n_step_norm)
+                n_norms.append(n_step_norm)
 
-            if r_norm < self.conv_thr:
+            if converged:
                 self.history.append((omg_ft, dT))
                 break
 
-        return omg_ft, dT, dT_init, n, iterations, iter_times, dT_convergence, n_convergence, gmres_residual
+        return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
+
+    def _run_solver_none(self, omg_idx, omg_ft):
+        """Fix dT; no iterations."""
+        dT = self.dT_init_user
+        n = None
+        iter_times = []
+        dT_iterates = []
+        n_norms = []
+        gmres_residual = []
+
+        iterations = 1
+
+        iter_start = time.time()
+        n_prev = n
+
+        n, resid = self._dT_to_N(
+            dT=dT,
+            omg_ft=omg_ft,
+            omg_idx=omg_idx,
+            sol_guess=n_prev,
+        )
+        gmres_residual.append(resid)
+
+        dT_new = N_to_dT(n, self.material)
+        dT_iterates.append(dT_new)
+
+        iter_times.append(time.time() - iter_start)
+
+        return omg_ft, dT, dT, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _run_solver_root(self, omg_idx, omg_ft):
         """Run the WTE solver using root finding to solve for the temperature change dT.
@@ -617,28 +609,35 @@ class SolverBase(ABC):
             The number of iterations taken for the outer solver to converge for the given omg_ft.
         iter_times : list
             A list of iteration times for the outer solver for the given omg_ft.
-        dT_convergence : list
-            A list of convergence values for the temperature changes dT for the given omg_ft.
-        n_convergence : list
-            A list of convergence values for the wigner distribution function n for the given omg_ft.
+        dT_iterates : list
+            A list of iteration values for the temperature changes dT for the given omg_ft.
+        n_norms : list
+            A list of norms for the wigner distribution function n for the given omg_ft.
         gmres_residual : list
             A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
 
         """
-        dT_init = estimate_initial_dT(
-            omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
-        )
+        if self.history:
+            dT_init = estimate_initial_dT(
+                omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
+            )
+        else:
+            dT_init = self.dT_init_user
 
         iter_times = []
-        dT_convergence = []
-        n_convergence = []
+        dT_iterates = []
+        n_norms = []
         gmres_residual = []
         n = None
         n_old = None
+        last_eval_dT = None
+        last_eval_n = None
+        last_eval_dTnew = None
 
         def residual_vec(x):
             # x is np.array([Re(dT), Im(dT)]) on CPU (necessary for scipy)
-            nonlocal n, n_old, dT_convergence, gmres_residual, iter_times
+            nonlocal n, n_old, dT_iterates, gmres_residual, iter_times
+            nonlocal last_eval_dT, last_eval_n, last_eval_dTnew
             dT = cp.asarray(x[0] + 1j * x[1], dtype=self.material.dtypec)
             iter_start = time.time()
             n_old = n
@@ -647,23 +646,42 @@ class SolverBase(ABC):
                 dT=dT,
                 omg_ft=omg_ft,
                 omg_idx=omg_idx,
-                sol_guess=None,
+                sol_guess=n_old,
             )
             gmres_residual.append(resid)
 
             dT_new = N_to_dT(n, self.material)
-            dT_convergence.append(dT_new)
+            dT_iterates.append(dT_new)
             if n_old is not None:
                 n_step_norm = cp.linalg.norm(n - n_old) / cp.linalg.norm(n_old)
-                n_convergence.append(n_step_norm)
+                n_norms.append(n_step_norm)
 
             iter_times.append(time.time() - iter_start)
 
-            rR = float(cp.real(dT - dT_new).item())
-            rI = float(cp.imag(dT - dT_new).item())
-            return np.array([self._wR * rR, self._wI * rI], dtype=self.material.dtyper)
+            # early exit hint: our definition of convergence is less tight
+            if self._dT_converged(dT, dT_new):
+                last_eval_dT = (x[0], x[1])
+                last_eval_n = n
+                last_eval_dTnew = dT_new
+                return np.array([0.0, 0.0], dtype=self.material.dtyper)
+
+            scale = float(max(cp.abs(dT).item(), cp.abs(dT_new).item(), 1.0))
+            rR = float(cp.real(dT - dT_new).item()) / scale
+            rI = float(cp.imag(dT - dT_new).item()) / scale
+
+            last_eval_dT = (x[0], x[1])
+            last_eval_n = n
+            last_eval_dTnew = dT_new
+
+            return np.array([rR, rI], dtype=self.material.dtyper)
 
         x0 = np.array([cp.real(dT_init).item(), cp.imag(dT_init).item()], dtype=self.material.dtyper)
+
+        # Loosen SciPy's step tolerance a bit, since we enforce our own anyways and double check at the end
+        if self.dtyper == cp.float32:
+            xtol = max(self.conv_thr_rel, 1e-4)
+        if self.dtyper == cp.float64:
+            xtol = max(self.conv_thr_rel, 1e-8)
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -671,31 +689,33 @@ class SolverBase(ABC):
                 residual_vec,
                 x0=x0,
                 method="hybr",
-                tol=self.conv_thr,
-                options={"xtol": self.conv_thr, "maxfev": self.max_iter + 2},
+                options={"xtol": xtol, "maxfev": self.max_iter + 2},
             )
 
-        fun_norm = np.linalg.norm(sol.fun) if hasattr(sol, "fun") else np.inf
-        converged = bool(sol.success) or (fun_norm <= self.conv_thr)
+        dT = cp.asarray(sol.x[0] + 1j * sol.x[1], dtype=self.material.dtypec)
+
+        # Reuse the last expensive evaluation if it matches the final x
+        if last_eval_dT is not None and np.allclose(
+            np.array(last_eval_dT),
+            np.array([float(cp.real(dT).item()), float(cp.imag(dT).item())]),
+            rtol=1e-12,
+            atol=0.0,
+        ):
+            n_final = last_eval_n
+            dT_final_new = last_eval_dTnew
+        else:
+            # one fallback call (rare)
+            n_final, _ = self._dT_to_N(dT=dT, omg_ft=omg_ft, omg_idx=omg_idx, sol_guess=n)
+            dT_final_new = N_to_dT(n_final, self.material)
+
+        converged = self._dT_converged(dT, dT_final_new)
 
         if not converged:
-            print(RuntimeWarning(f"Root finding failed to converge: {sol}"))
+            print(RuntimeWarning(f"Root finding did not meet tolerance: success={sol.success}"))
 
-        dT = cp.asarray(sol.x[0] + 1j * sol.x[1], dtype=self.material.dtypec)
         self.history.append((omg_ft, dT))
         niter = len(iter_times)
-        return omg_ft, dT, dT_init, n, niter, iter_times, dT_convergence, n_convergence, gmres_residual
-
-    @property
-    def residual_weights(self):
-        """Return the weights for the real and imaginary parts of the residual."""
-        return self._wR, self._wI
-
-    @residual_weights.setter
-    def residual_weights(self, weights: tuple[float, float]):
-        """Set the weights for the real and imaginary parts of the residual."""
-        self._wR = weights[0]
-        self._wI = weights[1]
+        return omg_ft, dT, dT_init, n, niter, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _solution_lists_to_arrays(self):
         """Convert the lists of iteration times, dT convergence, n convergence, and GMRES residuals into cupy arrays.
@@ -710,19 +730,19 @@ class SolverBase(ABC):
             iter_times_array[i, : len(times)] = times
         self.iter_time = iter_times_array
 
-        max_len = max(len(dTs) for dTs in self.dT_convergence_list)
-        dT_convergence_array = cp.full((len(self.dT_convergence_list), max_len), np.nan, dtype=self.material.dtypec)
-        for i, dTs in enumerate(self.dT_convergence_list):
+        max_len = max(len(dTs) for dTs in self.dT_iterates_list)
+        dT_iterates_array = cp.full((len(self.dT_iterates_list), max_len), np.nan, dtype=self.material.dtypec)
+        for i, dTs in enumerate(self.dT_iterates_list):
             dTs = cp.asarray(dTs, dtype=self.material.dtypec)
-            dT_convergence_array[i, : len(dTs)] = dTs
-        self.dT_convergence = dT_convergence_array
+            dT_iterates_array[i, : len(dTs)] = dTs
+        self.dT_iterates = dT_iterates_array
 
-        max_len = max(len(n_convs) for n_convs in self.n_convergence_list)
-        n_convergence_array = cp.full((len(self.n_convergence_list), max_len), np.nan, dtype=self.material.dtyper)
-        for i, n_convs in enumerate(self.n_convergence_list):
+        max_len = max(len(n_convs) for n_convs in self.n_norms_list)
+        n_norms_array = cp.full((len(self.n_norms_list), max_len), np.nan, dtype=self.material.dtyper)
+        for i, n_convs in enumerate(self.n_norms_list):
             n_convs = cp.asarray(n_convs, dtype=self.material.dtyper)
-            n_convergence_array[i, : len(n_convs)] = n_convs
-        self.n_convergence = n_convergence_array
+            n_norms_array[i, : len(n_convs)] = n_convs
+        self.n_norms = n_norms_array
 
         n_omega = len(self.omg_ft_array)
         max_outer = max(len(outer) for outer in self.gmres_residual_list)
@@ -756,16 +776,13 @@ class SolverBase(ABC):
         if self._flux is not None and not recompute:
             return self._flux
         if not self.iter_time_list:
-            raise ValueError("Solver has not been run yet. Please run the solver first.")
+            raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
         self._flux = cp.zeros_like(self.n, dtype=self.material.dtypec)
         for i, _ in enumerate(self.omg_ft_array):
-            self._flux[i] = flux_from_n(self.n[i], self.material)
+            n = self.n[i]
+            self._flux[i] = flux_from_n(n, self.material)
         return self._flux
-
-    @flux.setter
-    def flux(self, value):
-        self._flux = value
 
     @property
     def kappa(self):
@@ -782,7 +799,7 @@ class SolverBase(ABC):
         if self._kappa is not None:
             return self._kappa
         if not self.iter_time_list:
-            raise ValueError("Solver has not been run yet. Please run the solver first.")
+            raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
         num = cp.einsum("wqij->w", self.flux)
         den = 1j * self.k_ft * self.dT
@@ -804,7 +821,7 @@ class SolverBase(ABC):
         if self._kappa_p is not None:
             return self._kappa_p
         if not self.iter_time_list:
-            raise ValueError("Solver has not been run yet. Please run the solver first.")
+            raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
         flux_diag = cp.einsum("wqii->w", self.flux)
         den = 1j * self.k_ft * self.dT
@@ -826,7 +843,7 @@ class SolverBase(ABC):
         if self._kappa_c is not None:
             return self._kappa_c
         if not self.iter_time_list:
-            raise ValueError("Solver has not been run yet. Please run the solver first.")
+            raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
         flux_total = cp.einsum("wqij->w", self.flux)
         flux_diag = cp.einsum("wqii->w", self.flux)
@@ -841,10 +858,10 @@ def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.nd
 
     Parameters
     ----------
-    num : cupy.ndarray
-        The numerator array.
-    den : cupy.ndarray
-        The denominator array.
+    num : array-like or scalar
+        The numerator.
+    den : array-like or scalar
+        The denominator.
     eps : float, optional
         A small value to avoid division by zero. Default is 1e-300.
 
@@ -854,42 +871,20 @@ def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.nd
         The elementwise division result.
 
     """
-    out = cp.zeros_like(num, dtype=num.dtype)
-    mask = cp.abs(den) > eps
-    if mask.any():
-        out[mask] = num[mask] / den[mask]
+    num = cp.asarray(num)
+    den = cp.asarray(den)
+
+    out_shape = cp.broadcast(num, den).shape
+    num_b = cp.broadcast_to(num, out_shape)
+    den_b = cp.broadcast_to(den, out_shape)
+
+    out_dtype = cp.result_type(num_b, den_b)
+
+    mask = cp.abs(den_b) > eps
+    out = cp.zeros(out_shape, dtype=out_dtype)
+    out[mask] = num_b[mask] / den_b[mask]
+
     return out
-
-
-def _degeneracy_mask(phonon_freq: cp.ndarray, tol: float = 1 - 10):
-    """Build mask for degenerate vs non-degenerate pairs i,j per q-point.
-
-    Parameters
-    ----------
-    phonon_freq : cupy.ndarray
-        The phonon frequencies [Hz], shape (nq, nat3).
-    tol : float, optional
-        The tolerance for considering pairs as degenerate. The tolerance is relative to the maximum phonon frequency at
-        each q-point. Default is 1e-10.
-
-    Returns
-    -------
-    deg_mask : cupy.ndarray
-        The mask for degenerate pairs [nq, nat3, nat3].
-    offblock_mask : cupy.ndarray
-        The mask for non-degenerate off-diagonal pairs [nq, nat3, nat3].
-
-    """
-    phonon_freq_max = cp.max(cp.abs(phonon_freq), axis=1)
-    # |w_i - w_j| <= tol * w_max(q)
-    diff = cp.abs(phonon_freq[:, :, None] - phonon_freq[:, None, :])
-    thresh = (tol * phonon_freq_max)[:, None, None]
-    deg_mask = diff <= thresh
-
-    eye = cp.eye(phonon_freq.shape[1], dtype=cp.bool_)[None, :, :]
-    offblock_mask = (~deg_mask) & (~eye)  # non-degenerate off-diagonals
-
-    return deg_mask, offblock_mask
 
 
 def N_to_dT(n: cp.ndarray, material: Material) -> complex:
@@ -934,8 +929,6 @@ def _N_to_dT(n: cp.ndarray, phonon_freq: cp.ndarray, heat_capacity: cp.ndarray, 
     nq = n.shape[0]
     dT = 0
     for i in range(nq):
-        # delta_n = cp.diag(n[i]) - nbar(phonon_freq[i], temperature)
-        # dT += cp.sum(phonon_freq[i] * delta_n)
         dT += cp.sum(phonon_freq[i] * cp.diag(n[i]))
     dT *= hbar / volume / nq
     dT /= cp.sum(heat_capacity)
@@ -948,9 +941,11 @@ def dT_to_N_iterative(
     k_ft: float,
     material: Material,
     source: cp.ndarray,
+    source_type="energy",
     sol_guess=None,
     solver="gmres",
-    conv_thr=1e-12,
+    conv_thr_rel=1e-12,
+    conv_thr_abs=0,
     progress=False,
 ) -> tuple[cp.ndarray, list]:
     """Calculate the wigner distribution function n from the temperature change dT.
@@ -970,6 +965,10 @@ def dT_to_N_iterative(
         The material object containing phonon frequencies, heat capacity, and volume.
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
+        the offdiagonal elements are scaled by dT.
     sol_guess : cupy.ndarray, optional
         The initial guess for the solution, shape (nq, nat3, nat3).
     solver : {"gmres", "cgesv"}
@@ -998,11 +997,13 @@ def dT_to_N_iterative(
         heat_capacity=material.heat_capacity,
         volume=material.volume,
         source=source,
+        source_type=source_type,
         sol_guess=sol_guess,
         dtyper=material.dtyper,
         dtypec=material.dtypec,
         solver=solver,
-        conv_thr=conv_thr,
+        conv_thr_rel=conv_thr_rel,
+        conv_thr_abs=conv_thr_abs,
         progress=progress,
     )
 
@@ -1017,11 +1018,13 @@ def _dT_to_N_iterative(
     heat_capacity: cp.ndarray,
     volume: float,
     source: cp.ndarray,
+    source_type="energy",
     sol_guess=None,
     dtyper=cp.float64,
     dtypec=cp.complex128,
     solver="gmres",
-    conv_thr=1e-12,
+    conv_thr_rel=1e-12,
+    conv_thr_abs=0,
     progress=False,
 ) -> tuple[cp.ndarray, list]:
     """Calculate the wigner distribution function n from the temperature change dT.
@@ -1050,6 +1053,10 @@ def _dT_to_N_iterative(
         The volume of the cell [m^3].
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
+        the offdiagonal elements are scaled by dT.
     sol_guess : cupy.ndarray, optional
         The initial guess for the solution, shape (nq, nat3, nat3).
     dtyper : cupy.dtype, optional
@@ -1111,9 +1118,14 @@ def _dT_to_N_iterative(
             lhs = (1j * (term1 - term2)) + term3
 
             nbar_deltat = volume * nq / hbar / phonon_freq[ii] * heat_capacity[ii] * cp.array(dT, dtype=dtypec)
-            rhs = cp.copy(source[ii])
-            cp.fill_diagonal(rhs, cp.diag(source[ii]) + linewidth[ii] * nbar_deltat)
-            rhs = rhs.flatten()
+            if source_type == "energy":
+                rhs = cp.copy(source[ii])
+            elif source_type == "gradient":
+                rhs = (cp.array(dT, dtype=dtypec) * source[ii]).copy()
+            else:
+                raise ValueError(f"Unknown source type: {source_type}")
+            cp.fill_diagonal(rhs, cp.diag(rhs) + linewidth[ii] * nbar_deltat)
+            rhs = rhs.flatten(order="F")
 
             residuals = []
 
@@ -1122,9 +1134,15 @@ def _dT_to_N_iterative(
 
         if solver == "gmres":
             with nvtx.annotate("gmres", color="green"):
-                guess = sol_guess[ii].flatten() if sol_guess is not None else cp.zeros_like(rhs, dtype=dtypec)
+                guess = sol_guess[ii].flatten(order="F") if sol_guess is not None else cp.zeros_like(rhs, dtype=dtypec)
                 sol, info = gmres(
-                    lhs, rhs, x0=guess, callback=gmres_callback, tol=conv_thr, M=cp.diag(1 / lhs.diagonal())
+                    lhs,
+                    rhs,
+                    x0=guess,
+                    callback=gmres_callback,
+                    tol=conv_thr_rel,
+                    atol=conv_thr_abs,
+                    M=cp.diag(1 / lhs.diagonal()),
                 )
             if info != 0:
                 print(f"GMRES failed to converge: {info}")
@@ -1133,7 +1151,7 @@ def _dT_to_N_iterative(
         else:
             raise ValueError(f"Unknown inner solver: {solver}")
         outer_residuals.append(residuals)
-        sol = sol.reshape(nat3, nat3)
+        sol = sol.reshape(nat3, nat3, order="F")
         n[ii] = sol
     if progress:
         print(".", end="")
@@ -1145,6 +1163,7 @@ def dT_to_N_matmul(
     material: Material,
     green: cp.ndarray,
     source: cp.ndarray,
+    source_type: str = "energy",
 ) -> cp.ndarray:
     """Calculate the wigner distribution function n from the temperature change dT.
 
@@ -1160,6 +1179,10 @@ def dT_to_N_matmul(
         The material object containing all relevant properties.
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
+        the offdiagonal elements are scaled by dT.
     green : cupy.ndarray
         The Green's function, shape (nq, nat3, nat3).
 
@@ -1188,7 +1211,7 @@ def dT_to_N_matmul(
                 rhs,
                 cp.diag(source[iq]) + material.linewidth[iq] * nbar_deltat
             )
-            n[iq] = (green[iq] @ rhs.flatten()).reshape(nat3, nat3)
+            n[iq] = (green[iq] @ rhs.flatten(order="F")).reshape(nat3, nat3, order="F")
         return n
 
     The vectorized form avoids explicit Python loops and uses batched
@@ -1200,16 +1223,21 @@ def dT_to_N_matmul(
 
     green = cp.asarray(green)
     green = cp.ascontiguousarray(green).reshape(nq, m, m)
-    rhs = cp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
+    if source_type == "energy":
+        rhs = cp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
+    elif source_type == "gradient":
+        rhs = (cp.array(dT, dtype=material.dtypec) * cp.ascontiguousarray(source).reshape(nq, nat3, nat3)).copy()
+    else:
+        raise ValueError(f"Unknown source type: {source_type}")
     prefac = material.volume * nq / hbar * material.heat_capacity / material.phonon_freq * dT
 
     i = cp.arange(nat3)
     rhs[:, i, i] += material.linewidth * prefac
 
-    rhs_flat = rhs.reshape(nq, m)
+    rhs_flat = rhs.reshape(nq, m, order="F")
     n_flat = (green @ rhs_flat[..., None]).squeeze(-1)
 
-    return n_flat.reshape(nq, nat3, nat3)
+    return n_flat.reshape(nq, nat3, nat3, order="F")
 
 
 def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:

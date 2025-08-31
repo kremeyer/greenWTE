@@ -1,3 +1,16 @@
+[tool.hatch]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "greenWTE"
+description = "Solve the Wigner Transport Equation with a source term!"
+authors = [{ name = "Laurenz Kremeyer", email = "laurenz.kremeyer@mail.mcgill.ca" }]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+
 [tool.ruff]
 line-length = 120
 src = ["wtesolver", "test"]
@@ -24,6 +37,7 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["test/*.py"]
+addopts = "-ra"
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
   "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",
@@ -34,6 +48,7 @@ filterwarnings = [
 [tool.coverage.run]
 branch = true
 source = ["greenWTE"]
+omit = ["greenWTE/post.py"]
 
-[too.coverage.report]
+[tool.coverage.report]
 show_missing = true

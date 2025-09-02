@@ -1,5 +1,3 @@
-[tool.hatch]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -10,6 +8,29 @@ description = "Solve the Wigner Transport Equation with a source term!"
 authors = [{ name = "Laurenz Kremeyer", email = "laurenz.kremeyer@mail.mcgill.ca" }]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
+dynamic = ["version"]
+dependencies = [
+  "numpy~=1.26",  # Numpy 2 is not yet supported with Cupy and CUDA
+  "scipy~=1.11",
+  "h5py",
+  "bitshuffle",
+  "nvtx",
+  "tqdm",
+]
+
+[project.optional-dependencies]
+cuda12x = ["cupy-cuda12x>=12.0"]
+cuda13x = ["cupy-cuda13x>=13.0"]
+
+[tool.hatch]
+version.path = "greenWTE/__init__.py"
+
+[tool.hatch.envs.hatch-test]
+features = ["cuda12x"]
+default-args = ["test"]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.10", "3.11", "3.12"]
 
 [tool.ruff]
 line-length = 120
@@ -36,7 +57,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["test/*.py"]
+testpaths = ["test"]
 addopts = "-ra"
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres

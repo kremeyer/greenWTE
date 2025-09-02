@@ -108,20 +108,12 @@ if __name__ == "__main__":
         dtypec = cp.complex64
 
     if cp.finfo(dtyper).resolution > args.conv_thr_rel:
-        conv_thr_rel = 2 * cp.finfo(dtyper).resolution
+        args.conv_thr_rel = 2 * cp.finfo(dtyper).resolution
         print(
             f"Warning: convergence threshold {args.conv_thr_rel} is smaller than machine"
             f" precision {cp.finfo(dtyper).resolution}."
         )
-        print(f"Using twice machine precision {conv_thr_rel} instead.")
-
-    if cp.finfo(dtyper).resolution > args.conv_thr_abs:
-        conv_thr_abs = 2 * cp.finfo(dtyper).resolution
-        print(
-            f"Warning: convergence threshold {args.conv_thr_abs} is smaller than machine"
-            f" precision {cp.finfo(dtyper).resolution}."
-        )
-        print(f"Using twice machine precision {conv_thr_abs} instead.")
+        print(f"Using twice machine precision {args.conv_thr_rel} instead.")
 
     if args.direction == "x":
         dir_idx = 0
@@ -154,6 +146,7 @@ if __name__ == "__main__":
             args.spatial_frequency,
             mat.velocity_operator,
             mat.phonon_freq,
+            mat.linewidth,
             mat.heat_capacity,
             mat.volume,
         )
@@ -194,8 +187,8 @@ if __name__ == "__main__":
         source_type=source_type_for_solver,
         greens=greens,
         max_iter=args.max_iter,
-        conv_thr_rel=conv_thr_rel,
-        conv_thr_abs=conv_thr_abs,
+        conv_thr_rel=args.conv_thr_rel,
+        conv_thr_abs=args.conv_thr_abs,
         outer_solver=args.outer_solver,
         command_line_args=args,
         dT_init=args.dT_init[0] + 1j * args.dT_init[1],

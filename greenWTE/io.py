@@ -340,7 +340,7 @@ class GreenContainer:
             return False
         if not self._have_main:
             return False
-        return np.all(self.ds_mask[iw, ik, :])
+        return bool(np.all(self.ds_mask[iw, ik, :]))  # cast from np._bool to python bool
 
     def get(self, w, k, q, as_gpu=True, atol=0.0):
         """Retrieve a stored Green's operator block.
@@ -436,6 +436,8 @@ class GreenContainer:
         if not self._have_main:
             self._ensure_main()
         arr = data.get() if isinstance(data, cp.ndarray) else data
+        raw = data._green if isinstance(data, GreenOperatorLike) else data
+        arr = raw.get() if hasattr(raw, "get") else raw
         if arr.shape != (self.m, self.m):
             raise ValueError(f"Data shape {arr.shape} != {(self.m, self.m)}.")
         if arr.dtype != self.ds_tens.dtype:
@@ -472,7 +474,7 @@ class GreenContainer:
         if not self._have_main:
             self._ensure_main()
         arr = data._green if isinstance(data, GreenOperatorLike) else data
-        arr = arr.get() if isinstance(arr, cp.ndarray) else arr
+        arr = arr.get() if hasattr(arr, "get") else arr
         if arr.shape != (self.nq, self.m, self.m):
             raise ValueError(f"Data shape {arr.shape} != {(self.nq, self.m, self.m)}.")
         if arr.dtype != self.ds_tens.dtype:
@@ -498,7 +500,7 @@ class GreenContainer:
         iw = _find_index_1d(self.ds_w, w)
         if iw < 0:
             return
-        return self.ds_k[...][self.ds_mask[:, :, iw].any(axis=1)]
+        return self.ds_k[...][self.ds_mask[iw, :, :].any(axis=1)]
 
 
 def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
@@ -572,13 +574,13 @@ def save_solver_result(filename, solver, **kwargs):
         for key, value in vars(solver.command_line_args).items():
             if key in h5f:
                 continue
-            if isinstance(value, cp.ndarray):
-                h5f.create_dataset(key, data=value.get())
-            else:
-                h5f.create_dataset(key, data=value)
+            v = value.get() if hasattr(value, "get") else value
+            if isinstance(v, (list, tuple)):
+                v = np.asarray(v)
+            h5f.create_dataset(key, data=v)
 
         for key, value in kwargs.items():
-            if isinstance(value, cp.ndarray):
-                h5f.create_dataset(key, data=value.get())
-            else:
-                h5f.create_dataset(key, data=value)
+            v = value.get() if hasattr(value, "get") else value
+            if isinstance(v, (list, tuple)):
+                v = np.asarray(v)
+            h5f.create_dataset(key, data=v)

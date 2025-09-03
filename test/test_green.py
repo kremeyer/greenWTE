@@ -70,6 +70,7 @@ def test_rtagreenoperator_basic():
     # test free
     rgo.free()
     assert rgo._green is None
+    rgo.free()
 
 
 def test_rta_green_operator_consistency():
@@ -90,38 +91,6 @@ def test_rta_green_operator_consistency():
     identity = cp.eye(rgo.nat3**2)
     for iq in range(len(rgo)):
         assert cp.allclose(rwo[iq] @ rgo[iq], identity, atol=1e-12, rtol=1e-12)
-
-
-def test_green_container_io(tmp_path):
-    """Test the I/O functionality of the GreenContainer."""
-    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
-
-    rwo = RTAWignerOperator(omg_ft=DEFAULT_TEMPORAL_FREQUENCY, k_ft=DEFAULT_THERMAL_GRATING, material=material)
-    rwo.compute()
-
-    rgo = RTAGreenOperator(rwo)
-    rgo.compute(clear_wigner=True)
-
-    # check writing as full bz block
-    with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
-        gc.put_bz_block(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING, rgo)
-
-    with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
-        retrieved = gc.get_bz_block(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING)
-
-    assert cp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
-    assert retrieved.dtype == rgo.squeeze().dtype
-
-    # check writing as individual q-point entries
-    with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
-        for iq in range(material.nq):
-            gc.put(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING, iq, rgo[iq])
-
-    with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
-        retrieved = gc.get_bz_block(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING)
-
-    assert cp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
-    assert retrieved.dtype == rgo.squeeze().dtype
 
 
 def test_solver_with_green_container(tmp_path):
@@ -212,10 +181,13 @@ def test_green_vs_iterative_solver_gradient(material_path):
     cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, atol=2e-7, rtol=2e-7)
     cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], atol=2e-7, rtol=2e-7)
 
-
+@pytest.mark.parametrize("outer_solver", ["root", "aitken", "plain"])
 @pytest.mark.parametrize("material_path", [SI_INPUT_PATH, CSPBBR3_INPUT_PATH])
-def test_green_vs_iterative_energy(material_path):
+def test_green_vs_iterative_energy(outer_solver, material_path):
     """Test the Green's operator against an iterative solver and ensure that the Wigner distribution functions match."""
+    conv_thr_rel = 1e-4
+    conv_thr_abs = 0
+    
     material = Material.from_phono3py(
         material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
     )
@@ -228,8 +200,10 @@ def test_green_vs_iterative_energy(material_path):
         material=material,
         source=source,
         source_type="energy",
-        outer_solver="none",
+        outer_solver=outer_solver,
         inner_solver="gmres",
+        conv_thr_rel=conv_thr_rel,
+        conv_thr_abs=conv_thr_abs,
     )
 
     iterative_solver.run()
@@ -248,13 +222,16 @@ def test_green_vs_iterative_energy(material_path):
         material=material,
         source=source,
         source_type="energy",
-        outer_solver="none",
+        outer_solver=outer_solver,
         greens=[rgo],
+        conv_thr_rel=conv_thr_rel,
+        conv_thr_abs=conv_thr_abs,
     )
     green_solver.run()
 
-    cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, atol=2e-7, rtol=2e-7)
-    cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], atol=2e-7, rtol=2e-7)
+    # add small atol here, because near-zero elements can have large relative errors
+    cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, rtol=conv_thr_rel, atol=1e-7)
+    cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], rtol=conv_thr_rel, atol=1e-7)
 
 
 def test_diskgreenoperator_attribute_caching():

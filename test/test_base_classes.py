@@ -91,6 +91,26 @@ def test_wrong_outer_solver_error():
         solver.run()
 
 
+    rwo = RTAWignerOperator(
+    omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+    )
+    rwo.compute()
+
+    rgo = RTAGreenOperator(rwo)
+    rgo.compute(clear_wigner=True)
+
+    with pytest.raises(ValueError, match="Unknown outer solver: invalid"):
+        solver = GreenWTESolver(
+            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            k_ft=DEFAULT_THERMAL_GRATING,
+            material=material,
+            source=source,
+            outer_solver="invalid",
+            greens=[rgo],
+        )
+        solver.run()
+
+
 def test_wrong_inner_solver_error():
     """Test that an error is raised when using an invalid inner solver."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
@@ -213,7 +233,7 @@ def test_solver_not_run_error():
         _ = solver.kappa_p
 
 
-def test_printing_options(capfd):
+def test_printing_options_iterative(capfd):
     """Test that printing can be turned on and off."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
 
@@ -277,6 +297,118 @@ def test_printing_options(capfd):
     out, err = capfd.readouterr()
     assert out == ""
     assert err == ""
+
+
+def test_printing_options_green(capfd):
+    """Test that printing can be turned on and off."""
+    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
+
+    source = source_term_gradT(
+        DEFAULT_THERMAL_GRATING,
+        material.velocity_operator,
+        material.phonon_freq,
+        material.linewidth,
+        material.heat_capacity,
+        material.volume,
+    )
+
+    rwo1 = RTAWignerOperator(
+        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+    )
+    rwo1.compute()
+    rgo1 = RTAGreenOperator(rwo1)
+    rgo1.compute(clear_wigner=True)
+
+    rwo2 = RTAWignerOperator(
+        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY * 2]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+    )
+    rwo2.compute()
+    rgo2 = RTAGreenOperator(rwo1)
+    rgo2.compute(clear_wigner=True)
+
+    # one omega point will print progress of iterations
+    solver = GreenWTESolver(
+        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        k_ft=DEFAULT_THERMAL_GRATING,
+        material=material,
+        greens=[rgo1],
+        source=source,
+        source_type="gradient",
+        outer_solver="none",
+        print_progress=True,
+    )
+
+    solver.run()
+    out, err = capfd.readouterr()
+    assert "[1/1] k=1.00e+04 w=0.00e+00 dT= 1.00e+00+1.00e+00j n_it=1" in out
+    assert err == ""
+
+    # two omega points will print not progress of iterations
+    solver = GreenWTESolver(
+        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        k_ft=DEFAULT_THERMAL_GRATING,
+        material=material,
+        greens=[rgo1, rgo2],
+        source=source,
+        source_type="gradient",
+        outer_solver="none",
+        print_progress=True,
+    )
+
+    solver.run()
+    out, err = capfd.readouterr()
+    assert "[1/2] k=1.00e+04 w=0.00e+00 dT= 1.00e+00+1.00e+00j n_it=1" in out
+    assert err == ""
+
+    # no printing
+    solver = GreenWTESolver(
+        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        k_ft=DEFAULT_THERMAL_GRATING,
+        material=material,
+        greens=[rgo1, rgo2],
+        source=source,
+        source_type="gradient",
+        outer_solver="none",
+        print_progress=False,
+    )
+
+    solver.run(free=False)  # just to have this covered somewhere
+    out, err = capfd.readouterr()
+    assert out == ""
+    assert err == ""
+
+
+def test_omega_green_length_mismatch():
+    """Test that printing can be turned on and off."""
+    material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
+
+    source = source_term_gradT(
+        DEFAULT_THERMAL_GRATING,
+        material.velocity_operator,
+        material.phonon_freq,
+        material.linewidth,
+        material.heat_capacity,
+        material.volume,
+    )
+
+    rwo = RTAWignerOperator(
+        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+    )
+    rwo.compute()
+    rgo = RTAGreenOperator(rwo)
+    rgo.compute(clear_wigner=True)
+
+    with pytest.raises(ValueError, match="Number of Green's operators must match the number of omg_ft values."):
+        GreenWTESolver(
+            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+            k_ft=DEFAULT_THERMAL_GRATING,
+            material=material,
+            greens=[rgo],
+            source=source,
+            source_type="gradient",
+            outer_solver="none",
+            print_progress=False,
+        )
 
 
 def test_basesolver_attribute_caching():

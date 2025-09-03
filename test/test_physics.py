@@ -6,11 +6,12 @@ from os.path import join as pj
 import cupy as cp
 import h5py
 import pytest
-from greenWTE.base import Material, N_to_dT
+from greenWTE.base import Material
 from greenWTE.io import save_solver_result
 from greenWTE.iterative import IterativeWTESolver
 from greenWTE.sources import source_term_full, source_term_gradT
 
+from . import _final_residual_and_scale
 from .defaults import (
     CSPBBR3_INPUT_PATH,
     DEFAULT_TEMPERATURE,
@@ -115,19 +116,6 @@ def test_cspbbr3_anisotropy():
     kappas = cp.array(kappas)
     assert not cp.allclose(kappas[:, 0], cp.mean(kappas[:, 0]), rtol=0.2)
     assert not cp.allclose(kappas[:, 1], cp.mean(kappas[:, 1]), rtol=0.2)
-
-
-def _final_residual_and_scale(solver, material):
-    """Compute |F(dT)| and the scale used by the solver's combined tolerance."""
-    dT_final = solver.dT[0]
-    omg_ft = float(cp.asnumpy(solver.omg_ft_array[0]))
-    # Evaluate F at the final iterate to avoid Aitken mismatch
-    n_next, _ = solver._dT_to_N(dT=dT_final, omg_ft=omg_ft, omg_idx=0, sol_guess=None)
-    dT_next = N_to_dT(n_next, material)
-
-    r_abs = float(cp.abs(dT_final - dT_next).item())
-    scale = float(max(cp.abs(dT_final).item(), cp.abs(dT_next).item(), 1.0))
-    return r_abs, scale, dT_final, dT_next
 
 
 @pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
@@ -245,6 +233,7 @@ def test_output_file_dimensions(tmp_path):
     )
 
     solver.run()
+
     save_solver_result(output_filename, solver, temperature=DEFAULT_TEMPERATURE)
 
     with h5py.File(output_filename, "r") as h5f:

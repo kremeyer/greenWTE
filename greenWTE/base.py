@@ -19,6 +19,26 @@ class Material:
 
     This class can either be populated by passing arrays directly or by loading information from the output of a
     phono3py calculation.
+
+    Parameters
+    ----------
+    temperature : float
+        The temperature at which to evaluate the material properties.
+    velocity_operator : cupy.ndarray
+        The velocity operator, shape (nq, nat3, nat3).
+    phonon_freq : cupy.ndarray
+        The phonon frequencies, shape (nq, nat3).
+    linewidth : cupy.ndarray
+        The linewidths, shape (nq, nat3).
+    heat_capacity : cupy.ndarray
+        The heat capacities, shape (nq, nat3).
+    volume : float
+        The volume of the unit cell in m^3.
+    qpoint : cupy.ndarray, optional
+        The q-point coordinates, shape (3). Not required to solve the WTE.
+    name : str
+        The name of the material.
+
     """
 
     def __init__(
@@ -29,6 +49,7 @@ class Material:
         linewidth,
         heat_capacity,
         volume,
+        qpoint=None,
         name=None,
     ):
         """Initialize the Material class with physical properties."""
@@ -40,12 +61,15 @@ class Material:
         self.volume = volume
         self.dtypec = self.velocity_operator.dtype
         self.dtyper = self.phonon_freq.dtype
+        self.qpoint = qpoint
         self.name = name
         self.nq = self.phonon_freq.shape[0]
         self.nat3 = self.phonon_freq.shape[1]
 
     @classmethod
-    def from_phono3py(cls, filename, temperature, dir_idx=0, dtyper=cp.float64, dtypec=cp.complex128):
+    def from_phono3py(
+        cls, filename, temperature, dir_idx=0, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128
+    ):
         """Load material properties from a phono3py output file.
 
         Parameters
@@ -55,11 +79,14 @@ class Material:
         temperature : float
             The temperature at which to load the data.
         dir_idx : int, optional
-            The index of the directory containing the output files (default is 0).
+            The index of the directory containing the output files. Default is 0.
+        exclude_gamma : bool, optional
+            Whether to exclude the gamma point from the calculations. This will skip the loading the first
+            q-point for each quantity. Default is True.
         dtyper : cupy.dtype, optional
-            The data type for the real parts of the matrices, default is cp.float64.
+            The data type for the real parts of the matrices. Default is cp.float64.
         dtypec : cupy.dtype, optional
-            The data type for the complex matrices, default is cp.complex128.
+            The data type for the complex matrices. Default is cp.complex128.
 
         Returns
         -------
@@ -69,8 +96,13 @@ class Material:
         """
         from .io import load_phono3py_data
 
-        velocity_operator, phonon_freq, linewidth, heat_capacity, volume, _ = load_phono3py_data(
-            filename, temperature=temperature, dir_idx=dir_idx, dtyper=dtyper, dtypec=dtypec
+        qpoint, velocity_operator, phonon_freq, linewidth, heat_capacity, volume, _ = load_phono3py_data(
+            filename,
+            temperature=temperature,
+            dir_idx=dir_idx,
+            exclude_gamma=exclude_gamma,
+            dtyper=dtyper,
+            dtypec=dtypec,
         )
         return cls(
             temperature,
@@ -79,6 +111,7 @@ class Material:
             linewidth,
             heat_capacity,
             volume,
+            qpoint=qpoint,
             name=filename,
         )
 
@@ -87,7 +120,19 @@ class Material:
         return f"{self.name}@{self.temperature}K with {self.nq} qpoints and {self.nat3} modes"
 
     def __getitem__(self, iq):
-        """Get a specific q-point from the material."""
+        """Get a specific q-point from the material.
+
+        Parameters
+        ----------
+        iq : int
+            The index of the q-point to retrieve.
+
+        Returns
+        -------
+        Material
+            A new Material instance with the properties of the specified q-point.
+
+        """
         return Material(
             temperature=self.temperature,
             velocity_operator=self.velocity_operator[iq][None, ...],
@@ -97,6 +142,19 @@ class Material:
             volume=self.volume,
             name=self.name,
         )
+
+    def __iter__(self):
+        """Allow iteration over the Materials q-points."""
+        self._iter_index = 0
+        return self
+
+    def __next__(self):
+        """Return the next q-point in the iteration."""
+        if self._iter_index < self.nq:
+            result = self[self._iter_index]
+            self._iter_index += 1
+            return result
+        raise StopIteration
 
 
 class AitkenAccelerator:
@@ -164,7 +222,8 @@ def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128
     Returns
     -------
     dT_guess : cupy.ndarray
-        The estimated initial temperature change dT [K] for the given omg_ft. If no history is available, returns 1e-6.
+        The estimated initial temperature change dT [K] for the given omg_ft. If no history is available, returns
+        (1.0 + 1.0j).
 
     """
     if not history:
@@ -510,7 +569,7 @@ class SolverBase(ABC):
             A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
 
         """
-        if self.history:
+        if self.history:  # pragma: no cover
             dT_init = estimate_initial_dT(
                 omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
             )
@@ -617,7 +676,7 @@ class SolverBase(ABC):
             A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
 
         """
-        if self.history:
+        if self.history:  # pragma: no cover
             dT_init = estimate_initial_dT(
                 omg_ft=omg_ft, history=self.history, dtyper=self.material.dtyper, dtypec=self.material.dtypec
             )
@@ -677,19 +736,13 @@ class SolverBase(ABC):
 
         x0 = np.array([cp.real(dT_init).item(), cp.imag(dT_init).item()], dtype=self.material.dtyper)
 
-        # Loosen SciPy's step tolerance a bit, since we enforce our own anyways and double check at the end
-        if self.dtyper == cp.float32:
-            xtol = max(self.conv_thr_rel, 1e-4)
-        if self.dtyper == cp.float64:
-            xtol = max(self.conv_thr_rel, 1e-8)
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             sol = root(
                 residual_vec,
                 x0=x0,
                 method="hybr",
-                options={"xtol": xtol, "maxfev": self.max_iter + 2},
+                options={"xtol": self.conv_thr_rel, "maxfev": self.max_iter + 2},
             )
 
         dT = cp.asarray(sol.x[0] + 1j * sol.x[1], dtype=self.material.dtypec)
@@ -704,7 +757,7 @@ class SolverBase(ABC):
             n_final = last_eval_n
             dT_final_new = last_eval_dTnew
         else:
-            # one fallback call (rare)
+            # one fallback call
             n_final, _ = self._dT_to_N(dT=dT, omg_ft=omg_ft, omg_idx=omg_idx, sol_guess=n)
             dT_final_new = N_to_dT(n_final, self.material)
 
@@ -1289,7 +1342,7 @@ def _flux_from_n(n, velocity_operator, phonon_freq, volume):
     return flux
 
 
-def dT_bte_prb(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capacity, weight, heat):
+def dT_bte_prb(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capacity, weight, heat):  # pragma: no cover
     """Eq (9) from Phys Rev. B 104, 245424 [https://doi.org/10.1103/PhysRevB.104.245424]."""
     nq = phonon_freq.shape[0]
     nat3 = phonon_freq.shape[1]
@@ -1313,7 +1366,9 @@ def dT_bte_prb(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capaci
     return dT
 
 
-def dT_bte_from_wte(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capacity, weight, heat, volume):
+def dT_bte_from_wte(
+    omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capacity, weight, heat, volume
+):  # pragma: no cover
     """Eq (9) from Phys Rev. B 104, 245424 [https://doi.org/10.1103/PhysRevB.104.245424] for WTE result.
 
     Here we are using the correct normalization factors to match the BTE.
@@ -1338,7 +1393,7 @@ def dT_bte_from_wte(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_c
     return dT
 
 
-def kappa_eff_prb(k_ft, linewidth, group_velocity, heat_capacity):
+def kappa_eff_prb(k_ft, linewidth, group_velocity, heat_capacity):  # pragma: no cover
     """Calculate the effective thermal conductivity that would follow from the BTE.
 
     This equation is taken from

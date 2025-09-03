@@ -513,6 +513,7 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
                 f"Available temperatures: {available_temperatures}"
             )
         q_idx = int(exclude_gamma)
+        qpoint = cp.array(h5f["qpoint"][q_idx:, :])  # (nq, 3) | 1
         velocity_operator = (
             cp.array(h5f["velocity_operator_sym"][q_idx:, ..., dir_idx], dtype=dtypec) * 1e2
         )  # (nq, nat3, nat3) | m/s
@@ -531,6 +532,7 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
         heat_capacity *= weight[:, None] / volume  # (nq, nat3) | J/(K m^3)
 
     return (
+        qpoint,
         velocity_operator,
         phonon_freq,
         linewidth,

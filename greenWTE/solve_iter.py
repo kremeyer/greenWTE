@@ -123,14 +123,6 @@ if __name__ == "__main__":
         )
         print(f"Using twice machine precision {args.conv_thr_rel} instead.")
 
-    if cp.finfo(dtyper).resolution > args.conv_thr_abs:
-        args.conv_thr_abs = 2 * cp.finfo(dtyper).resolution
-        print(
-            f"Warning: convergence threshold {args.conv_thr_abs} is smaller than machine"
-            f" precision {cp.finfo(dtyper).resolution}."
-        )
-        print(f"Using twice machine precision {args.conv_thr_abs} instead.")
-
     if args.direction == "x":
         dir_idx = 0
     elif args.direction == "y":

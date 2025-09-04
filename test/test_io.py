@@ -1,5 +1,6 @@
 """Test cases for IO functionality of the greenWTE package."""
 
+import importlib
 import json
 from os.path import join as pj
 
@@ -20,6 +21,7 @@ class _FakeCupyArray:
 
     def __init__(self, arr):
         self._arr = np.asarray(arr)
+
     def get(self):
         return self._arr
 
@@ -27,9 +29,11 @@ class _FakeCupyArray:
 @pytest.fixture(autouse=True)
 def fake_cupy_and_no_bitshuffle(monkeypatch):
     """Replace cupy with a lightweight shim and disable bitshuffle usage inside _ensure_main."""
+
     class FakeCP:
         class ndarray:  # distinct from np.ndarray, so isinstance(np.array, cp.ndarray) is False
             pass
+
         complex128 = np.complex128
         float64 = np.float64
         pi = np.pi
@@ -99,6 +103,7 @@ def seeded_h5(tmp_path):
         f.attrs["schema"] = io_mod.SCHEMA
         f.attrs["dtype"] = "complex128"
     return path
+
 
 def test__ensure_existing_dataset(tmp_path):
     """Test that _ensure does not overwrite existing datasets."""
@@ -265,10 +270,12 @@ def test_put_and_put_bz_block_shape_dtype_and_flush(_empty_h5):
             gc.put_bz_block(0.5, 0.6, data=np.zeros((gc.nq + 1, gc.m, gc.m), dtype=np.complex128))
         with pytest.raises(TypeError):
             gc.put_bz_block(0.5, 0.6, data=np.zeros((gc.nq, gc.m, gc.m), dtype=np.float64))
+
         # Also exercise the GreenOperatorLike path
         class Wrapper:
             def __init__(self, arr):
                 self._green = arr
+
         gc.put_bz_block(0.7, 0.8, data=Wrapper(full), flush=False)
     finally:
         gc.close()
@@ -345,6 +352,7 @@ def test_save_solver_result_branches(tmp_path):
     class Mat:
         def __init__(self, x):
             self._x = np.asarray(x)
+
         def get(self):
             return self._x
 
@@ -356,51 +364,162 @@ def test_save_solver_result_branches(tmp_path):
         # include 'k' to collide with an existing dataset name -> exercises the "continue" path
         def __init__(self, extra_cp, extra_py):
             self.k = 123  # will be skipped
-            self.extra_array = extra_cp     # cp.ndarray-like -> .get() path
-            self.extra_value = extra_py     # plain value
+            self.extra_array = extra_cp  # cp.ndarray-like -> .get() path
+            self.extra_value = extra_py  # plain value
+            self.extra_list = [4, 5, 6]
 
     cp_like = _FakeCupyArray(np.array([1, 2, 3]))
 
     class Solver:
         # arrays saved via .get()
-        dT           = Mat([0.])
-        dT_init      = Mat([1.])
-        n            = Mat([2.])
-        niter        = Mat([3])
-        iter_time    = Mat([4.])
-        gmres_residual = Mat([5.])
-        dT_iterates  = Mat([6.])
-        n_norms      = Mat([7.])
-        source       = Mat([8.])
+        dT = Mat([0.0])
+        dT_init = Mat([1.0])
+        n = Mat([2.0])
+        niter = Mat([3])
+        iter_time = Mat([4.0])
+        gmres_residual = Mat([5.0])
+        dT_iterates = Mat([6.0])
+        n_norms = Mat([7.0])
+        source = Mat([8.0])
         # meta & params
         omg_ft_array = Mat([0.1, 0.2])
-        k_ft         = 0.5
-        max_iter     = 10
+        k_ft = 0.5
+        max_iter = 10
         conv_thr_rel = 1e-6
         conv_thr_abs = 1e-8
-        material     = Material()
-        outer_solver = "gmres"
-        inner_solver = "ilu"
-        kappa        = Mat([9.])
-        kappa_p      = Mat([10.])
-        kappa_c      = Mat([11.])
+        material = Material()
+        outer_solver = "root"
+        inner_solver = "gmres"
+        kappa = Mat([9.0])
+        kappa_p = Mat([10.0])
+        kappa_c = Mat([11.0])
         command_line_args = Args(extra_cp=cp_like, extra_py=42)
 
-    io_mod.save_solver_result(str(p), Solver(), kw_cp=cp_like, kw_plain=99)
+    io_mod.save_solver_result(str(p), Solver(), kw_cp=cp_like, kw_plain=99, kw_list=(9, 10))
 
     with h5py.File(p, "r") as f:
         # existing datasets
         assert "dT" in f and "kappa_C" in f and "omega" in f and "k" in f
-        # command_line_args:
-        #  - 'k' should have been skipped (dataset already present)
-        assert "k" in f and f["k"][()].shape == ()  # original scalar dataset
-        #  - extra_array stored via .get()
-        assert "extra_array" in f and np.allclose(f["extra_array"][...], [1,2,3])
-        #  - extra_value stored as plain scalar
+        # command_line_args branches
+        assert "k" in f and f["k"][()].shape == ()
+        assert "extra_array" in f and np.allclose(f["extra_array"][...], [1, 2, 3])
         assert "extra_value" in f and f["extra_value"][()] == 42
-        # kwargs handling for cp.ndarray-like and plain values
-        assert "kw_cp" in f and np.allclose(f["kw_cp"][...], [1,2,3])
+        assert "extra_list" in f and np.allclose(f["extra_list"][...], [4, 5, 6])
+        # kwargs branches
+        assert "kw_cp" in f and np.allclose(f["kw_cp"][...], [1, 2, 3])
         assert "kw_plain" in f and f["kw_plain"][()] == 99
+        assert "kw_list" in f and np.allclose(f["kw_list"][...], [9, 10])
+
+
+def test__ensure_main_original_branches(_empty_h5):
+    """Cover early-return and zero-length guard in the *original* _ensure_main."""
+    io_orig = importlib.reload(io_mod)  # restore original _ensure_main
+
+    gc = io_orig.GreenContainer(str(_empty_h5), nat3=2, nq=3)
+    try:
+        # Early return (covers lines 199–200)
+        gc._have_main = True
+        io_orig.GreenContainer._ensure_main(gc)
+
+        # Zero-length guard (covers line 204)
+        gc._have_main = False
+        gc.ds_w.resize((0,))
+        gc.ds_k.resize((0,))
+        import pytest
+
+        with pytest.raises(RuntimeError):
+            io_orig.GreenContainer._ensure_main(gc)
+    finally:
+        gc.close()
+
+
+def test_put_triggers_internal_ensure_main(monkeypatch, _empty_h5):
+    """Test that put triggers the internal _ensure_main method."""
+    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=2)
+    try:
+
+        def fake_indices(self, w, k, atol=0.0):
+            # Make w/k "exist" without touching _have_main
+            self.ds_w.resize((1,))
+            self.ds_w[0] = w
+            self.ds_k.resize((1,))
+            self.ds_k[0] = k
+            return 0, 0
+
+        monkeypatch.setattr(io_mod.GreenContainer, "indices", fake_indices, raising=True)
+
+        gc._have_main = False  # ensure the safety fallback will run
+        good = np.zeros((gc.m, gc.m), dtype=np.complex128)
+        gc.put(0.1, 0.2, q=0, data=good, flush=False)
+    finally:
+        gc.close()
+
+
+def test_put_bz_block_triggers_internal_ensure_main(monkeypatch, _empty_h5):
+    """Test that put_bz_block triggers the internal _ensure_main method."""
+    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=2)
+    try:
+
+        def fake_indices(self, w, k, atol=0.0):
+            self.ds_w.resize((1,))
+            self.ds_w[0] = w
+            self.ds_k.resize((1,))
+            self.ds_k[0] = k
+            return 0, 0
+
+        monkeypatch.setattr(io_mod.GreenContainer, "indices", fake_indices, raising=True)
+
+        gc._have_main = False
+        full = np.zeros((gc.nq, gc.m, gc.m), dtype=np.complex128)
+        gc.put_bz_block(0.3, 0.4, data=full, flush=False)
+    finally:
+        gc.close()
+
+
+def test_put_triggers_ensure_main_when_missing(_empty_h5, monkeypatch):
+    """Test that put triggers _ensure_main when indices() does not create main."""
+    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=2)
+    try:
+        # Make ds_w/ds_k non-empty so _ensure_main (patched in fixture) can succeed
+        gc.ds_w.resize((1,))
+        gc.ds_w[0] = 0.1
+        gc.ds_k.resize((1,))
+        gc.ds_k[0] = 0.2
+
+        # Pretend indices() doesn't create main; just returns (0,0)
+        monkeypatch.setattr(
+            io_mod.GreenContainer,
+            "indices",
+            lambda self, w, k, atol=1e-12: (0, 0),
+            raising=True,
+        )
+
+        gc._have_main = False
+        good = np.zeros((gc.m, gc.m), dtype=np.complex128)
+        gc.put(0.1, 0.2, q=0, data=good, flush=False)  # should call _ensure_main() branch
+    finally:
+        gc.close()
+
+
+def test_has_bz_block_and_get_before_main_created(tmp_path):
+    """Test has_bz_block and get when main dataset is not yet created."""
+    p = tmp_path / "gc.h5"
+    gc = io_mod.GreenContainer(str(p), nat3=2, nq=3)  # _have_main is False; only omega/k exist
+    try:
+        # Prime omega/k so find_indices() succeeds, but DO NOT call indices()/put() (which would create main)
+        gc.ds_w.resize((1,))
+        gc.ds_w[0] = 0.1
+        gc.ds_k.resize((1,))
+        gc.ds_k[0] = 0.2
+
+        # 1) has_bz_block should hit the early-return (line 342)
+        assert gc.has_bz_block(0.1, 0.2) is False
+
+        # 2) get should raise KeyError via the same “no-main” guard (line 374)
+        with pytest.raises(KeyError):
+            gc.get(0.1, 0.2, q=0, as_gpu=False)
+    finally:
+        gc.close()
 
 
 def test_green_container_io(tmp_path):

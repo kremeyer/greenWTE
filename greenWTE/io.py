@@ -200,7 +200,7 @@ class GreenContainer:
             return
         Nw, Nk = len(self.ds_w), len(self.ds_k)
         if Nw == 0 or Nk == 0:
-            # Should never happen; we call this only after appending w/k
+            # safeguard; should not happen
             raise RuntimeError("internal: _ensure_main called with zero Nw or Nk")
         self.ds_tens = _ensure(
             self.f,

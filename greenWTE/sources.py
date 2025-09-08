@@ -90,7 +90,7 @@ def source_term_gradT(k_ft, velocity_operator, phonon_freq, linewidth, heat_capa
     Parameters
     ----------
     k_ft : float
-        The thermal grating wavevector [1/m].
+        The thermal grating wavevector [rad/m].
     velocity_operator : cupy.ndarray
         The velocity operator, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
@@ -131,7 +131,7 @@ def source_term_anticommutator(k_ft, velocity_operator, phonon_freq, linewidth, 
     Parameters
     ----------
     k_ft : float
-        The thermal grating wavevector [1/m].
+        The thermal grating wavevector [rad/m].
     velocity_operator : cupy.ndarray
         The velocity operator, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray

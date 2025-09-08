@@ -211,7 +211,7 @@ def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128
     Parameters
     ----------
     omg_ft : float
-        The temporal Fourier variable [Hz].
+        The temporal Fourier variable [rad/s].
     history : list of tuples
         A list of (omg_ft, dT) tuples representing the history of previous temperature changes.
     dtyper : cupy.dtype, optional
@@ -264,7 +264,7 @@ class SolverBase(ABC):
     Parameters
     ----------
     omg_ft_array : cupy.ndarray
-        1D array of temporal Fourier variables :math:`\omega` [Hz] for which
+        1D array of temporal Fourier variables :math:`\omega` [rad/s] for which
         the WTE will be solved.
     k_ft : float
         Magnitude of the spatial Fourier variable :math:`k` [m⁻¹].
@@ -469,12 +469,12 @@ class SolverBase(ABC):
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [Hz] for which the WTE will be solved.
+            The temporal Fourier variable [rad/s] for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [Hz].
+            The input temporal Fourier variable [rad/s].
         dT : complex
             The calculated temperature change dT [K] for the given omg_ft.
         dT_init : complex
@@ -545,12 +545,12 @@ class SolverBase(ABC):
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [Hz] for which the WTE will be solved.
+            The temporal Fourier variable [rad/s] for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [Hz].
+            The input temporal Fourier variable [rad/s].
         dT : complex
             The calculated temperature change dT [K] for the given omg_ft.
         dT_init : complex
@@ -652,12 +652,12 @@ class SolverBase(ABC):
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [Hz] for which the WTE will be solved.
+            The temporal Fourier variable [rad/s] for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [Hz].
+            The input temporal Fourier variable [rad/s].
         dT : complex
             The calculated temperature change dT [K] for the given omg_ft.
         dT_init : complex
@@ -967,7 +967,7 @@ def _N_to_dT(n: cp.ndarray, phonon_freq: cp.ndarray, heat_capacity: cp.ndarray, 
     n : cupy.ndarray
         The wigner distribution function n, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies [Hz], shape (nq, nat3).
+        The phonon frequencies [rad/s], shape (nq, nat3).
     heat_capacity : cupy.ndarray
         The heat capacity [J/m^3/K] of the phonon modes, shape (nq, nat3).
     volume : float
@@ -1011,9 +1011,9 @@ def dT_to_N_iterative(
     dT : complex
         The temperature change dT [K].
     omg_ft : float
-        The temporal Fourier variable [Hz].
+        The temporal Fourier variable [rad/s].
     k_ft : float
-        The thermal grating wavevector [1/m].
+        The thermal grating wavevector [rad/m].
     material : Material
         The material object containing phonon frequencies, heat capacity, and volume.
     source : cupy.ndarray
@@ -1091,13 +1091,13 @@ def _dT_to_N_iterative(
     dT : complex
         The temperature change dT [K].
     omg_ft : float
-        The temporal Fourier variable [Hz].
+        The temporal Fourier variable [rad/s].
     k_ft : float
-        The thermal grating wavevector [1/m].
+        The thermal grating wavevector [rad/m].
     phonon_freq : cupy.ndarray
-        The phonon frequencies [Hz], shape (nq, nat3).
+        The phonon frequencies [rad/s], shape (nq, nat3).
     linewidth : cupy.ndarray
-        The linewidths [Hz], shape (nq, nat3).
+        The linewidths [rad/s], shape (nq, nat3).
     velocity_operator : cupy.ndarray
         The velocity operator for the phonon modes, shape (nq, nat3, nat3).
     heat_capacity : cupy.ndarray
@@ -1326,7 +1326,7 @@ def _flux_from_n(n, velocity_operator, phonon_freq, volume):
     velocity_operator : cupy.ndarray
         The velocity operator for the phonon modes, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies [Hz], shape (nq, nat3).
+        The phonon frequencies [rad/s], shape (nq, nat3).
     volume : float
         The volume of the cell [m^3].
 
@@ -1403,9 +1403,9 @@ def kappa_eff_prb(k_ft, linewidth, group_velocity, heat_capacity):  # pragma: no
     Parameters
     ----------
     k_ft : float
-        The thermal grating wavevector in 1/m.
+        The thermal grating wavevector in rad/m.
     linewidth, group_velocity, heat_capacity : array_like
-        The linewidth [Hz], group velocity [m/s], and heat capacity [J/m^3/K] of the phonon modes. 2D arrays with
+        The linewidth [rad/s], group velocity [m/s], and heat capacity [J/m^3/K] of the phonon modes. 2D arrays with
         shape (nq, nat3). Note that the group velocity is expected to be along the grating wavevector direction.
 
     Returns

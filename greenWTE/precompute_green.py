@@ -28,7 +28,7 @@ def parse_arguments():
         help="spatial frequency range in 10^(rad/m)",
     )
     parser.add_argument(
-        "-w", "--omega-range", type=float, nargs="+", default=[0, 15, 16], help="temporal frequency range in 10^(Hz)"
+        "-w", "--omega-range", type=float, nargs="+", default=[0, 15, 16], help="temporal frequency range in 10^(rad/s)"
     )
     parser.add_argument(
         "-d",
@@ -152,7 +152,7 @@ if __name__ == "__main__":  # pragma: no branch
             for spatial_frequency in args.spatial_frequency_range:
                 for omega in args.omega_range:
                     t0 = time.time()
-                    print(f"T={temperature: 4d}K k={spatial_frequency: 5.2e}/m w={omega: 5.2e}Hz: ", end="")
+                    print(f"T={temperature: 4d}K k={spatial_frequency: 5.2e}/m w={omega: 5.2e}rad/s: ", end="")
                     if args.batch:
                         if gc.has_bz_block(omega, spatial_frequency):
                             print("found")

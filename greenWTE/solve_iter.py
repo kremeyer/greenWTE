@@ -25,7 +25,7 @@ def parse_arguments():
     parser.add_argument("-t", "--temperature", type=float, default=350.0)
     parser.add_argument("-k", "--spatial-frequency", type=float, default=7, help="spatial frequency in 10^(rad/m)")
     parser.add_argument(
-        "-w", "--omega-range", type=float, nargs="+", default=[5, 15, 25], help="temporal frequency range in 10^(Hz)"
+        "-w", "--omega-range", type=float, nargs="+", default=[5, 15, 25], help="temporal frequency range in 10^(rad/s)"
     )
     parser.add_argument(
         "-xg", "--exclude-gamma", type=bool, default=True, help="exclude gamma point from the calculation"
@@ -134,13 +134,14 @@ if __name__ == "__main__":  # pragma: no branch
         filename=args.input,
         temperature=args.temperature,
         dir_idx=dir_idx,
+        exclude_gamma=args.exclude_gamma,
         dtyper=dtyper,
         dtypec=dtypec,
     )
 
     if args.diag_velocity_operator:
-        offdiag_mask = ~cp.eye(mat.velocity_operator.shape[1], dtype=cp.bool_)
-        mat.velocity_operator[:, offdiag_mask] = 0
+        mask = ~cp.eye(mat.velocity_operator.shape[1], dtype=cp.bool_)[None, :, :]
+        mat.velocity_operator[:, mask] = 0
 
     if args.source_type == "full":
         source = sources.source_term_full(mat.heat_capacity) * 5e8

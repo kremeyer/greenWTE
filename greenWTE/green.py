@@ -244,7 +244,7 @@ class GreenWTESolver(SolverBase):
     Parameters
     ----------
     omg_ft_array : cupy.ndarray
-        1D array of temporal Fourier variables :math:`\omega` [Hz] for which
+        1D array of temporal Fourier variables :math:`\omega` [rad/s] for which
         the WTE will be solved.
     k_ft : cupy.ndarray
         Magnitude of the spatial Fourier variable :math:`k` [m⁻¹].

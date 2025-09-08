@@ -12,7 +12,7 @@ def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
     Parameters
     ----------
     freq : array_like
-        Input frequency array (angular frequency).
+        Input angular frequency array [rad/s].
     data : array_like
         Input data array corresponding to the frequencies.
     n_freq_lin : int, optional

@@ -26,7 +26,7 @@ def parse_arguments():
     parser.add_argument("-t", "--temperature", type=float, default=350.0)
     parser.add_argument("-k", "--spatial-frequency", type=float, default=7, help="spatial frequency in 10^(rad/m)")
     parser.add_argument(
-        "-w", "--omega-range", type=float, nargs="+", default=[5, 15, 25], help="temporal frequency range in 10^(Hz)"
+        "-w", "--omega-range", type=float, nargs="+", default=[5, 15, 25], help="temporal frequency range in 10^(rad/s)"
     )
 
     parser.add_argument("-m", "--max-iter", type=int, default=100, help="maximum number of iterations")

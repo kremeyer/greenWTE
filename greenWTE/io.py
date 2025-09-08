@@ -519,11 +519,11 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
         velocity_operator = (
             cp.array(h5f["velocity_operator_sym"][q_idx:, ..., dir_idx], dtype=dtypec) * 1e2
         )  # (nq, nat3, nat3) | m/s
-        phonon_freq = cp.array(h5f["frequency"][q_idx:], dtype=dtyper) * 1e12 * 2 * cp.pi  # (nq, nat3) | Hz
+        phonon_freq = cp.array(h5f["frequency"][q_idx:], dtype=dtyper) * 1e12 * 2 * cp.pi  # (nq, nat3) | [rad/s]
         linewidth = cp.array(h5f["gamma"][temperature_index, q_idx:], dtype=dtyper)  # (nT, nq, nat3)
         linewidth += cp.array(h5f["gamma_isotope"][q_idx:], dtype=dtyper)  # (nq, nat3)
         linewidth += cp.array(h5f["gamma_boundary"][q_idx:], dtype=dtyper)  # (nq, nat3)
-        linewidth *= 1e12 * 2 * cp.pi  # Hz | ordinal to angular frequency
+        linewidth *= 1e12 * 2 * cp.pi  # [rad/s] | ordinal to angular frequency
         linewidth *= 2  # HWHM -> FWHM
         volume = cp.array(h5f["volume"][()], dtype=dtyper) * 1e-30  # m^3
         weight = cp.array(h5f["weight"][q_idx:], dtype=dtyper)  # nq | 1

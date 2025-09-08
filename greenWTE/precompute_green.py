@@ -12,7 +12,6 @@ def parse_arguments():
     parser = ArgumentParser(description="Precompute Green's functions for materials.")
     parser.add_argument("input", type=str, help="HDF5 input file from phono3py")
     parser.add_argument("output", type=str, help="output directory for HDF5 file(s)")
-    parser.add_argument("--tqdm", action="store_true", help="Enable progress bar; poor formatting when writing to file")
     parser.add_argument(
         "--batch", action="store_true", help="Enable batch mode; process full (w, k) pair; can be memory-heavy"
     )
@@ -74,12 +73,10 @@ def parse_arguments():
     return a
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no branch
     import time
     from os import sep
     from os.path import join as pj
-
-    from tqdm import tqdm
 
     from .base import Material
     from .green import RTAGreenOperator, RTAWignerOperator
@@ -113,7 +110,7 @@ if __name__ == "__main__":
         if not STOP:
             print(f"Signal {signal} received - finishing current write, flushing, and exiting...")
             STOP = True
-        else:
+        else:  # pragma: no cover
             raise SystemExit(1)
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGUSR1):
@@ -128,15 +125,6 @@ if __name__ == "__main__":
         dtyper = cp.float32
         dtypec = cp.complex64
 
-    if args.tqdm:
-        temperature_progress = args.temperature_range.shape[0] > 1
-        spatial_frequency_progress = args.spatial_frequency_range.shape[0] > 1
-        omega_progress = args.omega_range.shape[0] > 1
-    else:
-        temperature_progress = False
-        spatial_frequency_progress = False
-        omega_progress = False
-
     direction_idx = {"x": 0, "y": 1, "z": 2}[args.direction]
 
     print(
@@ -146,7 +134,6 @@ if __name__ == "__main__":
         f"temporal frequency range: {args.omega_range}\n"
         f"direction: {args.direction} (index {direction_idx})\n"
         f"batch: {args.batch}\n"
-        f"tqdm: {args.tqdm}\n"
         f"double precision: {args.double_precision}\n"
     )
 
@@ -156,31 +143,19 @@ if __name__ == "__main__":
 
         sys.exit(0)
 
-    for temperature in tqdm(args.temperature_range, desc="T", disable=not temperature_progress):
+    for temperature in args.temperature_range:
         material = Material.from_phono3py(args.input, temperature, dir_idx=direction_idx, dtyper=dtyper, dtypec=dtypec)
         filename = pj(args.output, f"{material.name.split(sep)[-1]}")
         filename = filename.replace(".hdf5", f"-T{temperature:03d}.hdf5")
         filename = filename.replace("kappa", "green")
         with GreenContainer(path=filename, nat3=material.nat3, nq=material.nq, dtype=material.dtypec) as gc:
-            for spatial_frequency in tqdm(
-                args.spatial_frequency_range,
-                desc="k",
-                disable=not spatial_frequency_progress,
-                leave=False,
-            ):
-                for omega in tqdm(
-                    args.omega_range,
-                    desc="w",
-                    disable=not omega_progress,
-                    leave=False,
-                ):
-                    if not args.tqdm:
-                        t0 = time.time()
-                        print(f"T={temperature: 4d}K k={spatial_frequency: 5.2e}/m w={omega: 5.2e}Hz: ", end="")
+            for spatial_frequency in args.spatial_frequency_range:
+                for omega in args.omega_range:
+                    t0 = time.time()
+                    print(f"T={temperature: 4d}K k={spatial_frequency: 5.2e}/m w={omega: 5.2e}Hz: ", end="")
                     if args.batch:
                         if gc.has_bz_block(omega, spatial_frequency):
-                            if not args.tqdm:
-                                print("found")
+                            print("found")
                             continue
                         rwo = RTAWignerOperator(
                             omg_ft=omega,
@@ -189,15 +164,15 @@ if __name__ == "__main__":
                         )
                         rwo.compute()
                         rgo = RTAGreenOperator(rwo)
-                        if STOP:
+                        if STOP:  # pragma: no cover
                             raise KeyboardInterrupt
                         rgo.compute()
-                        if STOP:
+                        if STOP:  # pragma: no cover
                             raise KeyboardInterrupt
                         gc.put_bz_block(omega, spatial_frequency, rgo)
                     else:
                         for iq in range(material.nq):
-                            if STOP:
+                            if STOP:  # pragma: no cover
                                 raise KeyboardInterrupt
                             if gc.has(omega, spatial_frequency, iq):
                                 continue
@@ -207,12 +182,11 @@ if __name__ == "__main__":
                                 material=material[iq],
                             )
                             rwo.compute()
-                            if STOP:
+                            if STOP:  # pragma: no cover
                                 raise KeyboardInterrupt
                             rgo = RTAGreenOperator(rwo)
                             rgo.compute()
-                            if STOP:
+                            if STOP:  # pragma: no cover
                                 raise KeyboardInterrupt
                             gc.put(omega, spatial_frequency, iq, rgo.squeeze())
-                    if not args.tqdm:
-                        print(f"{time.time() - t0:.1f}s")
+                    print(f"{time.time() - t0:.1f}s")

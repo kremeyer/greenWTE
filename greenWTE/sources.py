@@ -26,10 +26,11 @@ def source_term_diag(heat_capacity):
     for i in range(nq):
         cp.fill_diagonal(source_term[i], heat_capacity[i] / heat_capacity_tot)
     if heat_capacity.dtype == cp.float32:
-        source_term = source_term.astype(cp.complex64)
+        return source_term.astype(cp.complex64)
     elif heat_capacity.dtype == cp.float64:
-        source_term = source_term.astype(cp.complex128)
-    return source_term
+        return source_term.astype(cp.complex128)
+    else:
+        raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
 def source_term_full(heat_capacity):
@@ -51,10 +52,11 @@ def source_term_full(heat_capacity):
     heat_capacity_tot = cp.sum(heat_capacity)
     source_term = heat_capacity[:, :, None] * heat_capacity[:, None, :] / (heat_capacity_tot**2)
     if heat_capacity.dtype == cp.float32:
-        source_term = source_term.astype(cp.complex64)
+        return source_term.astype(cp.complex64)
     elif heat_capacity.dtype == cp.float64:
-        source_term = source_term.astype(cp.complex128)
-    return source_term
+        return source_term.astype(cp.complex128)
+    else:
+        raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
 def source_term_offdiag(heat_capacity):

@@ -96,7 +96,7 @@ def parse_arguments():
     return a
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no branch
     from .base import Material
 
     cp.set_printoptions(
@@ -127,10 +127,8 @@ if __name__ == "__main__":
         dir_idx = 0
     elif args.direction == "y":
         dir_idx = 1
-    elif args.direction == "z":
+    elif args.direction == "z":  # pragma: no branch
         dir_idx = 2
-    else:
-        raise ValueError("Direction must be one of 'x', 'y', or 'z'.")
 
     mat = Material.from_phono3py(
         filename=args.input,
@@ -163,7 +161,7 @@ if __name__ == "__main__":
             mat.volume,
         )
         source_type_for_solver = "gradient"
-    elif args.source_type == "anticommutator":
+    elif args.source_type == "anticommutator":  # pragma: no branch
         import warnings
 
         warnings.warn(
@@ -181,8 +179,6 @@ if __name__ == "__main__":
             mat.volume,
         )
         source_type_for_solver = "gradient"
-    else:
-        raise ValueError(f"Unknown source term structure: {args.source_type}")
 
     solver = IterativeWTESolver(
         omg_ft_array=args.omega_range,

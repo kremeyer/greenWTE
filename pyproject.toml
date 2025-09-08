@@ -32,6 +32,12 @@ default-args = ["test"]
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.10", "3.11", "3.12"]
 
+[tool.hatch.envs.docs]
+dependencies = ["sphinx"]
+
+[tool.hatch.envs.docs.scripts]
+build = "some command"
+
 [tool.ruff]
 line-length = 120
 src = ["wtesolver", "test"]

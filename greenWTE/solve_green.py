@@ -88,7 +88,7 @@ def parse_arguments():
     return a
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no branch
     from .base import Material
 
     cp.set_printoptions(

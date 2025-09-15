@@ -119,10 +119,8 @@ if __name__ == "__main__":  # pragma: no branch
         dir_idx = 0
     elif args.direction == "y":
         dir_idx = 1
-    elif args.direction == "z":
+    elif args.direction == "z":  # pragma: no branch
         dir_idx = 2
-    else:
-        raise ValueError("Direction must be one of 'x', 'y', or 'z'.")
 
     mat = Material.from_phono3py(
         filename=args.input,

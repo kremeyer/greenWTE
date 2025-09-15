@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from os.path import join as pj
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -99,11 +100,107 @@ def test_normal_solve_iter_runs(tmp_path):
         "greenWTE.solve_iter",
         SI_INPUT_PATH,
         tmp_file,
-        "-t", "50",
-        "-k", "0",
-        "-w", "0",
+        "-t",
+        "50",
+        "-k",
+        "0",
+        "-w",
+        "0",
+        "-os",
+        "none",
+        "-is",
+        "cgesv",
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    print("STDOUT:", result.stdout)
+    print("STDERR:", result.stderr)
+    print("RETURN CODE:", result.returncode)
+
+    assert result.returncode == 0, f"Command failed with error: {result.stderr}"
+
+
+@pytest.fixture(scope="session")
+def precomputed_green(tmp_path_factory):
+    """Fixture to provide a precomputed Green's function file for testing."""
+    base = tmp_path_factory.mktemp("greens_cache")  # shared across all params/tests
+    base = Path(base)
+
+    subprocess.run(
+        [
+            sys.executable, "-m", "greenWTE.precompute_green",
+            str(SI_INPUT_PATH),
+            str(base),
+            "-t", "350",
+            "-k", str(np.log10(DEFAULT_THERMAL_GRATING)),
+            "-w", "5", "15", "25",  # make this cover what solve_green expects
+        ],
+        check=True,
+    )
+
+    green_name = Path(SI_INPUT_PATH).name.replace(".hdf5", "-T350.hdf5").replace("kappa", "green")
+    green_file = base / green_name
+    return green_file
+
+
+@pytest.mark.parametrize(
+    "cli_arg",
+    [
+        ("-t", "350"),
+        ("--temperature", "350"),
+        ("-k", str(np.log10(DEFAULT_THERMAL_GRATING))),
+        ("--spatial-frequency", str(np.log10(DEFAULT_THERMAL_GRATING))),
+        ("-w", str(DEFAULT_TEMPORAL_FREQUENCY)),
+        ("-w", "-1", "1", "3"),
+        ("--omega-range", str(DEFAULT_TEMPORAL_FREQUENCY)),
+        ("-m", "2"),
+        ("--max-iter", "2"),
+        ("-cr", "1e-3"),
+        ("--conv-thr-rel", "1e-3"),
+        ("-ca", "1e-3"),
+        ("--conv-thr-abs", "1e-3"),
+        ("-dp",),
+        ("--double-precision",),
+        ("-os", "plain"),
+        ("-os", "aitken"),
+        ("-os", "root"),
+        ("-os", "none"),
+        ("--outer-solver", "plain"),
+        ("-s", "gradT"),
+        ("-s", "diag"),
+        ("-s", "diagonal"),
+        ("-s", "full"),
+        ("-s", "offdiagonal"),
+        ("-s", "anticommutator"),
+        ("--source-type", "gradT"),
+        ("-d", "x"),
+        ("-d", "y"),
+        ("-d", "z"),
+        ("--direction", "x"),
+    ],
+)
+def test_cli_options_solve_green(tmp_path, cli_arg, precomputed_green):
+    """Test various command line interface options for the greenWTE.solve_green module."""
+    output_file = pj(tmp_path, "test_cli_options.h5")
+    cmd = [sys.executable, "-m", "greenWTE.solve_green", SI_INPUT_PATH, str(precomputed_green), output_file, *cli_arg, "--dry-run"]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, f"Command failed with error: {result.stderr}"
+
+
+def test_normal_solve_green_runs(tmp_path, precomputed_green):
+    """Test that the normal execution of greenWTE.solve_green works as intended."""
+    tmp_file = pj(tmp_path, "test_solve_green.h5")
+    cmd = [
+        sys.executable,
+        "-m",
+        "greenWTE.solve_green",
+        SI_INPUT_PATH,
+        str(precomputed_green),
+        tmp_file,
+        "-t", "350",
+        "-k", str(np.log10(DEFAULT_THERMAL_GRATING)),
+        "-w", "5",
         "-os", "none",
-        "-is", "cgesv",
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -117,75 +214,6 @@ def test_normal_solve_iter_runs(tmp_path):
 @pytest.mark.parametrize(
     "cli_arg",
     [
-        ("-t", str(DEFAULT_TEMPERATURE)),
-        # ("--temperature", str(DEFAULT_TEMPERATURE)),
-        # ("-k", str(np.log10(DEFAULT_THERMAL_GRATING))),
-        # ("--spatial-frequency", str(np.log10(DEFAULT_THERMAL_GRATING))),
-        # ("-w", str(DEFAULT_TEMPORAL_FREQUENCY)),
-        # ("-w", "-1", "1", "3"),
-        # ("--omega-range", str(DEFAULT_TEMPORAL_FREQUENCY)),
-        # ("-m", "2"),
-        # ("--max-iter", "2"),
-        # ("-cr", "1e-3"),
-        # ("--conv-thr-rel", "1e-3"),
-        # ("-ca", "1e-3"),
-        # ("--conv-thr-abs", "1e-3"),
-        # ("-dp",),
-        # ("--double-precision",),
-        # ("-os", "plain"),
-        # ("-os", "aitken"),
-        # ("-os", "root"),
-        # ("-os", "none"),
-        # ("--outer-solver", "plain"),
-        # ("--diag-velocity-operator",),
-        # ("-s", "gradT"),
-        # ("-s", "diag"),
-        # ("-s", "diagonal"),
-        # ("-s", "full"),
-        # ("-s", "offdiagonal"),
-        # ("-s", "anticommutator"),
-        # ("--source-type", "gradT"),
-        # ("-d", "x"),
-        # ("-d", "y"),
-        # ("-d", "z"),
-        # ("--direction", "x"),
-    ],
-)
-def test_cli_options_solve_green(tmp_path, cli_arg):
-    """Test various command line interface options for the greenWTE.solve_green module."""
-    output_file = pj(tmp_path, "test_cli_options.h5")
-    green_file = pj(tmp_path, "test_cli_options2.h5")
-    cmd = [sys.executable, "-m", "greenWTE.solve_green", SI_INPUT_PATH, green_file, output_file, *cli_arg, "--dry-run"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    assert result.returncode == 0, f"Command failed with error: {result.stderr}"
-
-
-# def test_normal_solve_green_runs(tmp_path):
-#     """Test that the normal execution of greenWTE.solve_green works as intended."""
-#     tmp_file = pj(tmp_path, "test_solve_green.h5")
-#     cmd = [
-#         sys.executable,
-#         "-m",
-#         "greenWTE.solve_green",
-#         SI_INPUT_PATH,
-#         tmp_file,
-#         "-t", "50",
-#         "-k", "0",
-#         "-w", "0",
-#         "-os", "none",
-#     ]
-
-#     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-#     print("STDOUT:", result.stdout)
-#     print("STDERR:", result.stderr)
-#     print("RETURN CODE:", result.returncode)
-
-#     assert result.returncode == 0, f"Command failed with error: {result.stderr}"
-
-
-@pytest.mark.parametrize(
-    "cli_arg",
-    [
         ("-w", "-1", "1"),
         ("-w", "-1", "1", "3", "5"),
     ],
@@ -193,7 +221,7 @@ def test_cli_options_solve_green(tmp_path, cli_arg):
 def test_cli_errors_solve_green(tmp_path, cli_arg):
     """Test various command line interface options for the greenWTE.solve_green module."""
     output_file = pj(tmp_path, "test_cli_options.h5")
-    cmd = [sys.executable, "-m", "greenWTE.solve_green", SI_INPUT_PATH, output_file, *cli_arg]
+    cmd = [sys.executable, "-m", "greenWTE.solve_green", SI_INPUT_PATH, SI_INPUT_PATH, output_file, *cli_arg]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     assert result.returncode != 0, f"Command succeeded unexpectedly: {result.stdout}"
     assert "ValueError" in result.stderr or "invalid choice" in result.stderr
@@ -281,6 +309,7 @@ def test_precompute_green_signal_handler(tmp_path):
 
     assert proc.returncode == -2, f"Expected exit -2 after second SIGINT.\nSTDOUT:\n{out}\nSTDERR:\n{err}"
     assert "Signal 2 received - finishing current write, flushing, and exiting..." in out
+
 
 @pytest.mark.parametrize("batch", [True, False])
 def test_normal_precompute_green_runs(tmp_path, batch):

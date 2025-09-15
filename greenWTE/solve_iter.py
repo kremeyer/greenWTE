@@ -140,8 +140,8 @@ if __name__ == "__main__":  # pragma: no branch
     )
 
     if args.diag_velocity_operator:
-        mask = ~cp.eye(mat.velocity_operator.shape[1], dtype=cp.bool_)[None, :, :]
-        mat.velocity_operator[:, mask] = 0
+        offdiag_mask = ~cp.eye(mat.velocity_operator.shape[1], dtype=cp.bool_)
+        mat.velocity_operator[:, offdiag_mask] = 0
 
     if args.source_type == "full":
         source = sources.source_term_full(mat.heat_capacity) * 5e8

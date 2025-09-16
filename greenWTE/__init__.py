@@ -1,4 +1,4 @@
-"""__init__.py for greenWTE package."""
+"""greenWTE — frequency-domain solvers for the phonon Wigner Transport Equation (WTE)."""
 
 import warnings
 

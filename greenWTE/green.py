@@ -1,4 +1,4 @@
-"""Module for explicitly inverting the Linear Operator of the WTE to obtain the Green's function."""
+"""Green-operator utilities for WTE in the relaxation-time approximation (RTA)."""
 
 from abc import ABC, abstractmethod
 from argparse import Namespace
@@ -10,7 +10,32 @@ from .io import GreenContainer
 
 
 class RTAWignerOperator:
-    """Class to represent the Wigner operator in the relaxation time approximation."""
+    r"""Wigner operator in the relaxation‑time approximation (RTA).
+
+    Builds the block‑diagonal Wigner operator :math:`\mathcal{L}(q; \omega, k)` for a single temporal frequency
+    :math:`\omega` and spatial wavevector magnitude :math:`k`.
+
+    Parameters
+    ----------
+    omg_ft : float
+        Temporal Fourier variable in rad/s.
+    k_ft : float
+        Magnitude of the spatial Fourier variable in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material object containing the necessary material properties.
+
+    Attributes
+    ----------
+    dtyper : cupy.dtype
+        The data type for the real-valued arrays.
+    dtypec : cupy.dtype
+        The data type for the complex-valued arrays.
+    nq : int
+        The number of q-points.
+    nat3 : int
+        The number of phonon modes (3 times the number of atoms in the unit cell).
+
+    """
 
     def __init__(
         self,
@@ -29,7 +54,19 @@ class RTAWignerOperator:
         self.dtypec = material.dtypec
 
     def __getitem__(self, iq):
-        """Allow indexing to access the Wigner operator for a specific q-point."""
+        """Return a single-q-point operator block.
+        
+        Parameters
+        ----------
+        iq : int
+            The index of the q-point to retrieve.
+
+        Returns
+        -------
+        cupy.ndarray
+            The Wigner operator block for the specified q-point, with shape (nat3^2, nat3^2).
+
+        """
         if self._op is None:
             raise RuntimeError("Wigner operator not computed yet.")
         return self._op[iq]
@@ -45,7 +82,14 @@ class RTAWignerOperator:
         return iter(self._op)
 
     def compute(self, recompute=False):
-        """Compute the Wigner operator."""
+        """Assemble the Wigner operator blocks on the GPU.
+
+        Parameters
+        ----------
+        recompute : bool, optional
+            If ``False`` and the operator is already available, do nothing. If ``True``, rebuild all blocks.
+
+        """
         if self._op is not None and not recompute:
             return
 
@@ -82,9 +126,15 @@ class RTAWignerOperator:
 
 
 class GreenOperatorBase(ABC):
-    """Base class for Green's operators.
+    r"""Abstract base class for Green operators :math:`\mathcal{G} = \mathcal{L}^{-1}`.
 
     Provides a common interface for Green's operators, whether computed or loaded from disk.
+
+    See Also
+    --------
+    :py:class:`~RTAGreenOperator` : Green's operator computed from the RTA Wigner operator.
+    :py:class:`~DiskGreenOperator` : Disk-based Green's operator that loads.
+
     """
 
     __array_priority__ = 1000
@@ -154,7 +204,31 @@ class GreenOperatorBase(ABC):
 
 
 class RTAGreenOperator(GreenOperatorBase):
-    """Class to compute the Green's function in the relaxation time approximation from the Wigner operator."""
+    r"""Green operator in RTA computed by inverting a :py:class:`~greenWTE.green.RTAWignerOperator`.
+
+    Parameters
+    ----------
+    wigner_operator : :py:class:`~greenWTE.green.RTAWignerOperator`
+        Wigner operator to be inverted to obtain the Green's operator.
+    
+    Attributes
+    ----------
+    omg_ft : float
+        Temporal Fourier variable in rad/s.
+    k_ft : float
+        Magnitude of the spatial Fourier variable in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material associated with the Green's operator.
+    nq : int
+        Number of q-points.
+    nat3 : int
+        Number of phonon modes (3 times the number of atoms in the unit cell).
+    dtyper : cupy.dtype
+        Data type for the real-valued arrays.
+    dtypec : cupy.dtype
+        Data type for the complex-valued arrays.
+
+    """
 
     def __init__(self, wigner_operator: RTAWignerOperator):
         """Initialize the Green's operator with the Wigner operator."""
@@ -169,14 +243,14 @@ class RTAGreenOperator(GreenOperatorBase):
         self.dtypec = wigner_operator.dtypec
 
     def compute(self, recompute=False, clear_wigner=True):
-        """Compute the Green's function from the Wigner operator.
+        """Invert the Wigner operator to obtain the Green operator on the GPU.
 
         Parameters
         ----------
-        recompute : bool
-            Whether to recompute the Green's function if it has already been computed.
-        clear_wigner : bool
-            Whether to clear the Wigner operator after computing the Green's function.
+        recompute : bool, optional
+            If ``False`` and the operator is already available, do nothing. If ``True``, rebuild all blocks.
+        clear_wigner : bool, optional
+            If ``True``, free the memory used by the Wigner operator after computing the Green's function.
 
         """
         if self._green is not None and not recompute:
@@ -186,8 +260,6 @@ class RTAGreenOperator(GreenOperatorBase):
 
         self._green = cp.zeros_like(self.wigner_operator._op, dtype=self.dtypec)
 
-        # for ii in range(len(self.wigner_operator)):
-        #     self._green[ii] = cp.linalg.pinv(self.wigner_operator[ii])
         self._green = cp.linalg.inv(self.wigner_operator._op)
 
         if clear_wigner:
@@ -195,9 +267,37 @@ class RTAGreenOperator(GreenOperatorBase):
 
 
 class DiskGreenOperator(GreenOperatorBase):
-    """Disk-based Green's operator that loads precomputed Green's functions from disk.
+    r"""Disk-backed Green operator loaded from a :py:class:`~greenWTE.io.GreenContainer`.
 
-    Loads one (nq, m, m) slab to GPU on demand.
+    Loads a single slab ``(nq, m, m)`` for the requested :math:`\omega` and :math:`k` into GPU memory on demand,
+    allowing the solver to operate without recomputing or storing all Green operators simultaneously.
+    
+    Parameters
+    ----------
+    container : :py:class:`~greenWTE.io.GreenContainer`
+        Container object that manages the disk storage of Green's operators.
+    omg_ft : float
+        Temporal Fourier variable in rad/s.
+    k_ft : float
+        Spatial Fourier variable in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material object containing the necessary material properties.
+    atol : float, optional
+        Absolute tolerance for matching stored :math:`\omega` and :math:`k` values.
+
+    Attributes
+    ----------
+    material : :py:class:`~greenWTE.base.Material`
+        Material associated with the Green's operator.
+    nq : int    
+        Number of q-points.
+    nat3 : int
+        Number of phonon modes (3 times the number of atoms in the unit cell).
+    dtyper : cupy.dtype
+        Data type for the real-valued arrays.
+    dtypec : cupy.dtype
+        Data type for the complex-valued arrays.
+
     """
 
     def __init__(
@@ -207,9 +307,8 @@ class DiskGreenOperator(GreenOperatorBase):
         k_ft: float,
         material: Material,
         atol: float = 0.0,
-        as_gpu: bool = True,
     ):
-        """Initialize the disk-based Green's operator."""
+        """Initialize the disk-based Green's operator. No I/O is performed here."""
         self.omg_ft = omg_ft
         self.k_ft = k_ft
         self.material = material
@@ -219,88 +318,82 @@ class DiskGreenOperator(GreenOperatorBase):
         self.dtypec = material.dtypec
 
         self._gc = container
-        self._as_gpu = as_gpu
         self._atol = atol
         self._green = None
 
     def compute(self, recompute=False):
-        """Load the Green's operator from disk or recompute it if necessary."""
+        """Load the Green's operator from disk.
+        
+        Parameters
+        ----------
+        recompute : bool, optional
+            If ``False`` and the data is already present, do nothing. If ``True``, reload from disk.
+        
+        """
         if self._green is not None and not recompute:
             return
         # pull the Green's operator from disk
-        arr = self._gc.get_bz_block(self.omg_ft, self.k_ft, as_gpu=self._as_gpu, atol=self._atol)
+        arr = self._gc.get_bz_block(self.omg_ft, self.k_ft, atol=self._atol)
         self._green = cp.ascontiguousarray(cp.asarray(arr, dtype=self.dtypec))
 
 
 class GreenWTESolver(SolverBase):
     r"""Wigner Transport Equation solver using precomputed Green's operators.
 
-    This solver implements the mapping from a temperature change ``dT`` to
-    the Wigner distribution function ``n`` via direct matrix multiplication
-    with precomputed Green's function operators. The approach bypasses the
-    need for iterative inner solvers such as GMRES and can be significantly
-    faster when the Green's functions are available.
+    This solver implements the mapping from a temperature change ``dT`` to the Wigner distribution function ``n`` via
+    direct matrix multiplication with precomputed Green's function operators. The approach bypasses the need for
+    iterative inner solvers such as GMRES and can be significantly faster when the Green's functions are available.
 
     Parameters
     ----------
     omg_ft_array : cupy.ndarray
-        1D array of temporal Fourier variables :math:`\omega` [rad/s] for which
-        the WTE will be solved.
-    k_ft : cupy.ndarray
-        Magnitude of the spatial Fourier variable :math:`k` [m⁻¹].
-    material : Material
-        Material object containing the necessary physical properties
-        (phonon frequencies, linewidths, heat capacities, etc.).
+        1D array of temporal Fourier variables in rad/s for which the WTE will be solved.
+    k_ft : float
+        Magnitude of the spatial Fourier variable in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material object containing the necessary material properties.
+    greens : list of RTAGreenOperator
+        List of precomputed Green's function operators, one for each ``omg_ft`` value in `omg_ft_array`. Each operator
+        must implement matrix multiplication to map the source term to the Wigner distribution function.
     source : cupy.ndarray
-        Source term of the WTE, with shape ``(nq, nat3, nat3)``.
+        Source term of the WTE, with shape (nq, nat3, nat3).
     source_type : str
         The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
-        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
-        the offdiagonal elements are scaled by dT.
-    greens : list of RTAGreenOperator
-        List of precomputed Green's function operators, one for each
-        ``omg_ft`` value in `omg_ft_array`. Each operator must implement
-        matrix multiplication to map the source term to the Wigner
-        distribution function.
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source
+        terms, the offdiagonal elements are scaled by dT.
+    dT_init : complex, optional
+        Initial guess for :math:`\Delta T` used by the outer solver.
     max_iter : int, optional
-        Maximum number of iterations for the outer solver (default is 100).
-    conv_thr : float, optional
-        Convergence threshold for the outer solver (default is 1e-12).
-    outer_solver : {'root', 'aitken', 'plain'}, optional
-        Outer solver strategy to use. One of:
-        - ``'root'``: nonlinear root finding in 2D space (real & imaginary parts)
-        - ``'aitken'``: Aitken Δ² acceleration applied to fixed-point iteration
-        - ``'plain'``: plain fixed-point iteration without acceleration
-        Default is ``'root'``.
+        Maximum number of iterations for the outer solver.
+    conv_thr_rel : float, optional
+        The relative convergence threshold for the solver.
+    conv_thr_abs : float, optional
+        The absolute convergence threshold for the solver.
+    outer_solver : {'plain', 'aitken', 'root', 'none'}, optional
+        Outer-solver strategy. ``'root'`` uses :func:`scipy.optimize.root`, ``'plain'`` is fixed-point, ``'aitken'``
+        applies :class:`~greenWTE.base.AitkenAccelerator`, and ``'none'`` performs a single mapping.
     command_line_args : argparse.Namespace, optional
-        Optional namespace of parsed command-line arguments for controlling
-        solver behavior or I/O (default is an empty Namespace).
+        Optional namespace of parsed command-line arguments to be added to the results file.
+    print_progress : bool, optional
+        If ``True``, prints progress while solving.
 
     Raises
     ------
     ValueError
-        If the number of supplied Green's operators does not match the length
-        of `omg_ft_array`.
-
-    Attributes
-    ----------
-    greens : list of RTAGreenOperator
-        The precomputed Green's function operators, indexed by frequency.
+        If the number of supplied Green's operators does not match the length of `omg_ft_array`.
 
     Notes
     -----
-    - This implementation calls :func:`dT_to_N_matmul` to apply the Green's
-      operator for the given frequency index. No residuals are generated,
-      and the second return value of :meth:`_dT_to_N` is always a list of
-      empty lists (one per ``nq``).
-    - Since there is no iterative inner solver, performance is largely
-      determined by the cost of the Green's operator matrix multiplication.
+    - This implementation calls :func:`dT_to_N_matmul` to apply the Green's operator for the given frequency index. No
+      residuals are generated, and the second return value of :meth:`_dT_to_N` is always a list of empty lists
+      (one per ``nq``).
+    - Since there is no iterative inner solver, performance is largely determined by the cost of the Green's operator
+      matrix multiplication.
 
     See Also
     --------
-    SolverBase : Parent class that provides the outer-solver infrastructure.
-    IterativeWTESolver : Alternative solver using iterative linear solvers
-                         (not shown here).
+    :py:class:`~greenWTE.base.SolverBase` : Parent class that provides the outer-solver infrastructure.
+    :py:class:`~greenWTE.iterative.IterativeWTESolver` : WTE solver using iterative methods.
 
     """
 
@@ -314,12 +407,12 @@ class GreenWTESolver(SolverBase):
         greens: list[RTAGreenOperator],
         source: cp.ndarray,
         source_type: str = "energy",
+        dT_init: complex = 1.0 + 1.0j,
         max_iter=100,
         conv_thr_rel=1e-12,
         conv_thr_abs=0,
         outer_solver="root",
         command_line_args=Namespace(),
-        dT_init: complex = 1.0 + 1.0j,
         print_progress: bool = False,
     ) -> None:
         """Initialize GreenWTESolver."""
@@ -358,11 +451,11 @@ class GreenWTESolver(SolverBase):
         return n, [[] for _ in range(self.material.nq)]  # no residuals from matrix multiplication
 
     def run(self, free=True):
-        """Run the WTE solver for each temporal Fourier variable in omg_ft_array.
+        r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
-        This method uses the specified outer solver (Aitken, plain, or root) to solve the WTE for each omg_ft in
-        omg_ft_array. After running, the results are stored in the class attributes dT, dT_init, n, niter,
-        n_norms, iter_time_list, dT_iterates_list, n_norms_list, and gmres_residual_list.
+        The outer iteration chosen by ``outer_solver`` is used to find self-consistent solutions for the temperature
+        changes :math:`\Delta T(\omega)` and the Wigner distribution. After running, the results are stored in the class
+        attributes dT, dT_init, n, niter, n_norms, iter_time, dT_iterates, and gmres_residual.
         """
         if self.outer_solver == "aitken":
             run_func = self._run_solver_aitken

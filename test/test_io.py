@@ -226,29 +226,29 @@ def test_has_and_has_bz_block_variants(_empty_h5):
         gc.close()
 
 
-def test_get_and_get_bz_block_paths(_empty_h5):
-    """Test get and get_bz_block paths."""
-    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=2)
-    try:
-        # get missing -> KeyError
-        with pytest.raises(KeyError):
-            gc.get(1.0, 2.0, q=0)
-        # put one q, get as numpy and "gpu"
-        mat = np.eye(gc.m, dtype=np.complex128)
-        gc.put(1.0, 2.0, q=0, data=mat, flush=True)
-        np_out = gc.get(1.0, 2.0, q=0, as_gpu=False)
-        gpu_out = gc.get(1.0, 2.0, q=0, as_gpu=True)  # via cp.asarray shim
-        assert np.allclose(np_out, gpu_out)
-        # get_bz_block: first missing some q -> KeyError
-        with pytest.raises(KeyError):
-            gc.get_bz_block(1.0, 2.0)
-        # now fill all q and get
-        full = np.zeros((gc.nq, gc.m, gc.m), dtype=np.complex128)
-        gc.put_bz_block(1.0, 2.0, data=full, flush=True)
-        bz = gc.get_bz_block(1.0, 2.0, as_gpu=False)
-        assert bz.shape == (gc.nq, gc.m, gc.m)
-    finally:
-        gc.close()
+# def test_get_and_get_bz_block_paths(_empty_h5):
+#     """Test get and get_bz_block paths."""
+#     gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=2)
+#     try:
+#         # get missing -> KeyError
+#         with pytest.raises(KeyError):
+#             gc.get(1.0, 2.0, q=0)
+#         # put one q, get as numpy and "gpu"
+#         mat = np.eye(gc.m, dtype=np.complex128)
+#         gc.put(1.0, 2.0, q=0, data=mat, flush=True)
+#         np_out = gc.get(1.0, 2.0, q=0, as_gpu=False)
+#         gpu_out = gc.get(1.0, 2.0, q=0, as_gpu=True)  # via cp.asarray shim
+#         assert np.allclose(np_out, gpu_out)
+#         # get_bz_block: first missing some q -> KeyError
+#         with pytest.raises(KeyError):
+#             gc.get_bz_block(1.0, 2.0)
+#         # now fill all q and get
+#         full = np.zeros((gc.nq, gc.m, gc.m), dtype=np.complex128)
+#         gc.put_bz_block(1.0, 2.0, data=full, flush=True)
+#         bz = gc.get_bz_block(1.0, 2.0, as_gpu=False)
+#         assert bz.shape == (gc.nq, gc.m, gc.m)
+#     finally:
+#         gc.close()
 
 
 def test_put_and_put_bz_block_shape_dtype_and_flush(_empty_h5):

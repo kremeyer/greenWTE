@@ -326,7 +326,7 @@ class DiskGreenOperator(GreenOperatorBase):
         
         Parameters
         ----------
-            recompute : bool, optional
+        recompute : bool, optional
             If ``False`` and the data is already present, do nothing. If ``True``, reload from disk.
         
         """

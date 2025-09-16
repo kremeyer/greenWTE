@@ -430,10 +430,9 @@ class SolverBase(ABC):
     def run(self):
         r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
-        The outer iteration chosen by :paramref:`~greenWTE.base.SolverBase.__init__.outer_solver` is used to find
-        self-consistent solutions for the temperature changes :math:`\Delta T(\omega)` and the Wigner distribution.
-        After running, the results are stored in the class attributes dT, dT_init, n, niter, n_norms, iter_time,
-        dT_iterates, and gmres_residual.
+        The outer iteration chosen by ``outer_solver`` is used to find self-consistent solutions for the temperature
+        changes :math:`\Delta T(\omega)` and the Wigner distribution. After running, the results are stored in the class
+        attributes dT, dT_init, n, niter, n_norms, iter_time, dT_iterates, and gmres_residual.
         """
         if self.outer_solver == "aitken":
             run_func = self._run_solver_aitken

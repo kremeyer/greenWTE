@@ -1,14 +1,59 @@
-"""User-facing module for precomputing Green's functions and writing them to disk."""
+r"""CLI to precompute Green's operators and store them in an on-disk HDF5 container.
+
+This script builds relaxation-time approximation (RTA) **Wigner Green's operators** :math:`\mathcal G(q;\omega,k)`
+for a given material, across a grid of temporal frequencies :math:`\omega` in rad/s, spatial frequencies
+:math:`k` in rad/m, and temperatures :math:`T` in K. Results are written to an HDF5 file per temperature using the
+:py:class:`~greenWTE.io.GreenContainer` layout. Each file stores the 5-D dataset ``green[Nw, Nk, nq, m, m]`` with
+:meth:`bitshuffle <bitshuffle.h5>` compression.
+
+Typical use (log-spaced frequency grids)::
+
+    python -m greenWTE.precompute_green input.hdf5 out_dir -t 300 600 2 -k 3 9 7 -w 0 15 16 -d x
+
+Notes
+-----
+- Frequencies provided via ``-k`` and ``-w`` are interpreted in **log10 units** when three values are supplied,
+  i.e. ``-k k0 k1 n`` produces ``np.logspace(k0, k1, n)`` in rad/m; likewise for ``-w`` in rad/s. If a single
+  value is given, it is treated as :math:`10^x` in the corresponding units.
+- When ``--batch`` is enabled, the full Brillouin-zone block (all ``q``) is computed and written in one call. This is
+  fastest but can be memory-intensive. Without ``--batch``, each ``q`` is processed independently to reduce peak memory.
+- The script installs signal handlers for ``SIGINT``, ``SIGTERM``, and ``SIGUSR1``. Upon the first signal, it flips a
+  global ``STOP`` flag, letting the current compute/write finish, then exits gracefully after the current block.
+  A second signal forces an immediate exit.
+
+"""
 
 import signal
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
+from typing import Iterable
 
 import cupy as cp
 import numpy as np
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
+def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
+    """Parse and validate command-line arguments for Green's precomputation.
+
+    The frequency grids accept either a **single** number (interpreted as a base-10 exponent) or **three** numbers
+    ``start stop num`` meaning ``np.logspace(start, stop, num)``. Temperatures accept either a single integer or three
+    integers ``start stop num`` meaning ``np.linspace(start, stop, num)`` (rounded to whole kelvin).
+
+    Parameters
+    ----------
+    argv : Iterable[str] or None, optional
+        CLI arguments to parse (defaults to ``sys.argv[1:]`` when ``None``).
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments.
+
+    Raises
+    ------
+    ValueError
+        If any of the ``*_range`` options are not specified as either 1 value or 3 values.
+
+    """
     parser = ArgumentParser(description="Precompute Green's functions for materials.")
     parser.add_argument("input", type=str, help="HDF5 input file from phono3py")
     parser.add_argument("output", type=str, help="output directory for HDF5 file(s)")
@@ -72,6 +117,39 @@ def parse_arguments():
 
     return a
 
+global STOP
+STOP = False
+
+def request_stop(signal: int, frame) -> None:
+    """Handle termination signals (SIGINT, SIGTERM, SIGUSR1) with graceful shutdown.
+
+    On first signal, set a global ``STOP`` flag so the main loop finishes the current compute/write and flushes
+    the HDF5 file, then exits. On a second signal, exit immediately with non-zero status.
+
+    Parameters
+    ----------
+    signal : int
+        The signal that was received.
+    frame : frame
+        The current stack frame.
+
+    Notes
+    -----
+    - ``SIGINT`` usually corresponds to a manual ``KeyboardInterrupt`` (Ctrl-C).
+    - ``SIGTERM`` is commonly used by schedulers (e.g., Slurm) on cancellation or timeout.
+    - ``SIGUSR1`` can be set as an early warning signal in Slurm via
+      ``#SBATCH --signal=[{R|B}:]SIGUSR1[@sig_time]``. See `Slurm documentation`_ for details.
+
+    .. _Slurm documentation: https://slurm.schedmd.com/sbatch.html#OPT_signal
+
+    """
+    global STOP
+    if not STOP:
+        print(f"Signal {signal} received - finishing current write, flushing, and exiting...")
+        STOP = True
+    else:  # pragma: no cover
+        raise SystemExit(1)
+
 
 if __name__ == "__main__":  # pragma: no branch
     import time
@@ -81,37 +159,6 @@ if __name__ == "__main__":  # pragma: no branch
     from .base import Material
     from .green import RTAGreenOperator, RTAWignerOperator
     from .io import GreenContainer
-
-    STOP = False
-
-    def request_stop(signal, frame):
-        """Handle termination signals.
-
-        Parameters
-        ----------
-        signal : signal
-            The signal that was received.
-        frame : frame
-            The current stack frame.
-
-        Notes
-        -----
-        This function is called when a termination signal is received. It sets the global STOP flag to True, indicating
-        that the program should stop. The expected signals are:
-            - SIGINT  ->  from KeyboardInterrupt triggered manually
-            - SIGTERM ->  from slurm when the job is cancelled or times out
-            - SIGUSR1 ->  from slurm to warn early before the job times out
-
-        The usage of SIGUSR1 can be configured in the slurm options as `#SBATCH --signal=[{R|B}:]SIGUSR1[@sig_time]`
-        ref: https://slurm.schedmd.com/sbatch.html#OPT_signal
-
-        """
-        global STOP
-        if not STOP:
-            print(f"Signal {signal} received - finishing current write, flushing, and exiting...")
-            STOP = True
-        else:  # pragma: no cover
-            raise SystemExit(1)
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGUSR1):
         signal.signal(sig, request_stop)

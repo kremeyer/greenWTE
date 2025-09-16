@@ -1,9 +1,7 @@
 """IO module for Green's function transport equation (WTE) calculations.
 
-This module provides a high-level interface for storing and retrieving
-precomputed Green's operators in an HDF5 container. It supports lazy dataset
-creation, dynamic resizing, and optional GPU (CuPy) compatibility for data
-I/O.
+This module provides a high-level interface for storing and retrieving precomputed Green's operators in an HDF5
+container. It supports lazy dataset creation, dynamic resizing, and optional GPU (CuPy) compatibility for data I/O.
 """
 
 import contextlib
@@ -22,25 +20,25 @@ SCHEMA = "rta-greens/1"
 def _ensure(f, name, *, shape, maxshape, chunks, dtype, **kwargs):
     """Ensure that a dataset exists in an HDF5 file.
 
-    If the dataset `name` exists in the file `f`, it is returned.
-    Otherwise, it is created with the provided parameters.
+    If the dataset named ``name`` exists in the file ``f``, it is returned. Otherwise, the dataset is created with the
+    given shape, dtype, chunking, compression, and unlimited dimensions.
 
     Parameters
     ----------
     f : h5py.File
         Open HDF5 file object.
     name : str
-        Name of the dataset.
+        Dataset path.
     shape : tuple of int
         Initial dataset shape.
     maxshape : tuple of int or None
-        Maximum shape of the dataset; use None for unlimited dimensions.
+        Maximum shape; use ``None`` for dimensions that may grow.
     chunks : tuple of int
-        Chunk sizes for each dimension.
+        Chunk sizes per dimension.
     dtype : dtype or str
-        Data type of the dataset; converted to a NumPy dtype.
+        On-disk dtype.
     **kwargs : dict
-        Additional keyword arguments passed to `h5py.File.create_dataset`.
+        Additional keyword arguments forwarded to :py:meth:`h5py.File.create_dataset`.
 
     Returns
     -------
@@ -54,16 +52,16 @@ def _ensure(f, name, *, shape, maxshape, chunks, dtype, **kwargs):
 
 
 def _find_or_append_1d(dset, value, atol=0.0):
-    """Find or append a scalar value to a 1D dataset.
+    """Find the index of ``value`` in a 1-D dataset, appending if absent.
 
     Parameters
     ----------
     dset : h5py.Dataset
-        A 1D dataset.
+        One-dimensional dataset.
     value : float
         Scalar value to find or append.
     atol : float, optional
-        Absolute tolerance for comparison when matching existing values.
+        Absolute tolerance for equality checks.
 
     Returns
     -------
@@ -83,7 +81,23 @@ def _find_or_append_1d(dset, value, atol=0.0):
 
 
 def _find_index_1d(dset, value, atol=0.0):
-    """Fint index of `value` in a 1D dataset."""
+    """Find the index of ``value`` in a 1-D dataset.
+    
+    Parameters
+    ----------
+    dset : h5py.Dataset
+        One-dimensional dataset.
+    value : float
+        Scalar value to find or append.
+    atol : float, optional
+        Absolute tolerance for equality checks.
+
+    Returns
+    -------
+    int
+        Index if found; ``-1`` otherwise.
+
+    """
     val = float(value)
     data = dset[...]
     for i, v in enumerate(data):
@@ -100,16 +114,15 @@ class GreenOperatorLike(Protocol):
 
 
 class GreenContainer:
-    """Container for storing Green's operators in an HDF5 file.
+    r"""Container for HDF5‑stored Green’s operators.
 
-    This class manages the storage of precomputed Green's operators indexed
-    by frequency (`omega`), wavevector magnitude (`k`), and a q-point index.
-    Data is stored in a 5D array with shape `(Nw, Nk, nq, m, m)`, where
-    `m = nat3**2`.
+    This class manages the storage of precomputed Green's operators indexed by frequency ``omega``, wavevector magnitude
+    ``k``, and a q-point index ``q``. Data is stored in a 5D array with shape (Nw, Nk, nq, m, m), where
+    :math:`m = (3*n_\mathrm{at})^2`.
 
     Parameters
     ----------
-    path : str
+    path : str or os.PathLike
         Path to the HDF5 file. Created if it does not exist.
     nat3 : int, optional
         Number of atoms times 3; defines the block size of the operator. Only required
@@ -117,29 +130,27 @@ class GreenContainer:
     nq : int, optional
         Number of q-points. Only required if this is a new Green's function file. Read from file if None.
     dtype : dtype or str, optional
-        Complex or real data type for storage. Default is `cp.complex128`.
+        Complex or real data type for storage.
     meta : dict, optional
-        Additional metadata to store in the file root attributes.
+        Arbitrary metadata to persist as root attributes.
     tile_B : int, optional
-        Block size for chunking the matrix dimensions. Default is 512.
+        Block size for chunking the matrix dimensions.
     read_only : bool, optional
-        If True, open the file in read-only mode. Default is False. This will allow multiple readers to access
-        the file simultaneously.
+        If True, open the file in read-only mode. Default is False. This will allow multiple readers to access the file
+        simultaneously.
 
     Attributes
     ----------
-    nat3 : int
-        Number of atoms times 3.
-    nq : int
-        Number of q-points.
+    f : h5py.File
+        Open HDF5 handle.
+    ds_w, ds_k : h5py.Dataset
+        The 1-D frequency and wavevector datasets.
+    ds_mask : h5py.Dataset
+        Boolean mask indicating which ``(w, k, q)`` blocks exist.
+    ds_tens : h5py.Dataset
+        Tensor operator blocks with shape ``(Nw, Nk, nq, m, m)``.
     m : int
         Matrix block dimension, `nat3**2`.
-    dtype : numpy.dtype
-        Data type of stored arrays.
-    omegas : numpy.ndarray
-        Array of stored omega values.
-    ks : numpy.ndarray
-        Array of stored k values.
 
     """
 
@@ -228,21 +239,21 @@ class GreenContainer:
             self.f.close()
 
     def indices(self, w, k, atol=0.0):
-        """Find or append indices for given omega and k values.
+        """Return ``(iw, ik)`` indices for the given ``(w, k)``. Append if missing.
 
         Parameters
         ----------
         w : float
-            Frequency value (omega).
+            Angular frequency.
         k : float
-            Wavevector magnitude (k).
+            Wavevector magnitude.
         atol : float, optional
             Absolute tolerance for comparing existing values.
 
         Returns
         -------
-        (int, int)
-            Tuple `(iw, ik)` of indices in the omega and k datasets.
+        tuple of int
+            ``(iw, ik)`` indices into the ``omega`` and ``k`` datasets.
 
         """
         iw = _find_or_append_1d(self.ds_w, w, atol=atol)
@@ -262,21 +273,21 @@ class GreenContainer:
         return iw, ik
 
     def find_indices(self, w, k, atol=0.0):
-        """Find indices for given omega and k values; raise KeyError if not missing.
+        """Return ``(iw, ik)`` indices for the given ``(w, k)``.
 
         Parameters
         ----------
         w : float
-            Frequency value (omega).
+            Angular frequency.
         k : float
-            Wavevector magnitude (k).
+            Wavevector magnitude.
         atol : float, optional
             Absolute tolerance for comparing existing values.
 
         Returns
         -------
-        (int, int)
-            Tuple `(iw, ik)` of indices in the omega and k datasets.
+        tuple of int
+            ``(iw, ik)`` indices into the ``omega`` and ``k`` datasets.
 
         Raises
         ------
@@ -296,18 +307,18 @@ class GreenContainer:
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
         q : int
-            Q-point index.
+            q-point index.
         atol : float, optional
-            Absolute tolerance for matching omega/k.
+            Absolute tolerance for comparing existing values.
 
         Returns
         -------
         bool
-            True if the block exists, False otherwise.
+            ``True`` if the block exists, ``False`` otherwise.
 
         """
         try:
@@ -322,16 +333,16 @@ class GreenContainer:
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
         atol : float, optional
-            Absolute tolerance for matching omega/k.
+            Absolute tolerance for comparing existing values.
 
         Returns
         -------
         bool
-            True if the block exists, False otherwise.
+            ``True`` if the block exists, ``False`` otherwise.
 
         """
         try:
@@ -342,62 +353,58 @@ class GreenContainer:
             return False
         return bool(np.all(self.ds_mask[iw, ik, :]))  # cast from np._bool to python bool
 
-    def get(self, w, k, q, as_gpu=True, atol=0.0):
-        """Retrieve a stored Green's operator block.
+    def get(self, w, k, q, atol=0.0):
+        """Load a single Green’s operator block ``G[w, k, q]``.
 
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
         q : int
-            Q-point index.
-        as_gpu : bool, optional
-            If True, return a CuPy array; otherwise return a NumPy array. Default is True.
+            q-point index.
         atol : float, optional
-            Absolute tolerance for matching omega/k. Default is 0.0.
+            Absolute tolerance for comparing existing values.
 
         Returns
         -------
-        numpy.ndarray or cupy.ndarray
-            The `(m, m)` operator block.
+        cupy.ndarray
+            A GPU array with shape ``(m, m)`` and complex dtype matching the on-disk dataset.
 
         Raises
         ------
         KeyError
-            If the requested block is not found.
+            If the requested block is missing.
 
         """
         iw, ik = self.find_indices(w, k, atol=atol)
         if not self._have_main or not bool(self.ds_mask[iw, ik, int(q)]):
             raise KeyError(f"Requested block w={w}, k={k}, q={q} not found.")
         out = self.ds_tens[iw, ik, int(q), :, :][...]  # NumPy array
-        return cp.asarray(out) if as_gpu else out
+        return cp.asarray(out)
 
-    def get_bz_block(self, w, k, as_gpu=True, atol=0.0):
-        """Retrieve all stored blocks of the full Brillouin zone for a specific (omega, k) pair.
+    def get_bz_block(self, w, k, atol=0.0):
+        """Load all q-blocks for a given pair ``(w, k)``.
 
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
-        as_gpu : bool, optional
-            If True, return a CuPy array; otherwise return a NumPy array. Default is True.
         atol : float, optional
-            Absolute tolerance for matching omega/k. Default is 0.0.
+            Absolute tolerance for comparing existing values.
 
         Returns
         -------
-        numpy.ndarray or cupy.ndarray
+        cupy.ndarray
             The `(nq, m, m)` array of operator blocks for the specified (w, k).
 
         Raises
         ------
         KeyError
-            If the requested block is not found.
+            If the requested block is missing.
 
         """
         iw, ik = self.find_indices(w, k, atol=atol)
@@ -405,25 +412,25 @@ class GreenContainer:
         mask = self.ds_mask[iw, ik, :]
         if not np.all(mask):
             raise KeyError(f"Missing q-point blocks for w={w}, k={k}.")
-        return cp.asarray(tens) if as_gpu else tens
+        return cp.asarray(tens)
 
     def put(self, w, k, q, data, atol=0.0, flush=True):
-        """Store a Green's operator block.
+        """Store a Green's operator block ``G[w, k, q]``.
 
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
         q : int
-            Q-point index.
-        data : numpy.ndarray or cupy.ndarray
+            q-point index.
+        data : cupy.ndarray
             Operator block to store; must have shape `(m, m)`.
         atol : float, optional
-            Absolute tolerance for matching omega/k. Default is 0.0.
+            Absolute tolerance for comparing existing values.
         flush : bool, optional
-            If True, flush the file to disk after writing. Default is True.
+            If True, flush the file to disk after writing.
 
         Raises
         ------
@@ -448,20 +455,20 @@ class GreenContainer:
             self.f.flush()
 
     def put_bz_block(self, w, k, data, atol=0.0, flush=True):
-        """Store all blocks of the Brillouin zone for a specific (omega, k) pair.
+        """Store the full Brillouin‑zone block for a pair ``(w, k)``.
 
         Parameters
         ----------
         w : float
-            Frequency value.
+            Angular frequency.
         k : float
             Wavevector magnitude.
-        data : numpy.ndarray or cupy.ndarray or greenWTE.green.RTAGreenOperator
+        data : cupy.ndarray or greenWTE.green.RTAGreenOperator
             Array of operator blocks to store; must have shape `(nq, m, m)`.
         atol : float, optional
-            Absolute tolerance for matching omega/k. Default is 0.0.
+            Absolute tolerance for comparing existing values.
         flush : bool, optional
-            If True, flush the file to disk after writing. Default is True.
+            If True, flush the file to disk after writing.
 
         Raises
         ------
@@ -485,7 +492,20 @@ class GreenContainer:
             self.f.flush()
 
     def omegas(self, k=None):
-        """Return all stored omega values."""
+        r"""Return all stored :math:`\omega` values.
+        
+        Parameters
+        ----------
+        k : float, optional
+            If provided, return only the frequencies for which **any** q-block exists at this ``k`` (according to the
+            mask).
+        
+        Returns
+        -------
+        numpy.ndarray
+            One-dimensional array of frequencies in rad/s.
+
+        """
         if k is None:
             return self.ds_w[...]
         ik = _find_index_1d(self.ds_k, k)
@@ -494,7 +514,20 @@ class GreenContainer:
         return self.ds_w[...][self.ds_mask[:, ik, :].any(axis=1)]
 
     def ks(self, w=None):
-        """Return all stored k values."""
+        r"""Return all stored :math:`k` values.
+        
+        Parameters
+        ----------
+        w : float, optional
+            If provided, return only the wavevector magnitudes for which **any** q-block exists at this ``omega``
+            (according to the mask).
+
+        Returns
+        -------
+        numpy.ndarray
+            One-dimensional array of wavevector magnitudes in 1/m.
+
+        """
         if w is None:
             return self.ds_k[...]
         iw = _find_index_1d(self.ds_w, w)
@@ -504,7 +537,42 @@ class GreenContainer:
 
 
 def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
-    """Load data from a phono3py-generated HDF5 file."""
+    r"""Load data from a phono3py-generated HDF5 file.
+    
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        Path to the :mod:phono3py HDF5 file.
+    temperature : float
+        Temperature in Kelvin at which to read linewidths and heat capacities.
+    dir_idx : int
+        Cartesian direction index of the velocity operator (0=x, 1=y, 2=z).
+    exclude_gamma : bool, optional
+        If ``True``, drop the :math:`\Gamma` point from the beginning of each q-point-indexed dataset.
+    dtyper : dtype or str, optional
+        Real data type for loading real-valued arrays.
+    dtypec : dtype or str, optional
+        Complex data type for loading complex-valued arrays.
+
+    Returns
+    -------
+    tuple
+        A tuple ``(qpoint, velocity_operator, phonon_freq, linewidth, heat_capacity, volume, weight)`` where:
+        - ``qpoint`` is a :class:`cupy.ndarray` of shape ``(nq, 3)`` with the q-point coordinates.
+        - ``velocity_operator`` is a :class:`cupy.ndarray` of shape ``(nq, nat3, nat3)`` with the velocity operator in
+          m/s.
+        - ``phonon_freq`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with phonon frequencies in rad/s.
+        - ``linewidth`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with phonon linewidths (FWHM) in rad/s.
+        - ``heat_capacity`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with mode heat capacities in J/(K m^3).
+        - ``volume`` is a scalar :class:`cupy.ndarray` with the unit cell volume in m^3.
+        - ``weight`` is a :class:`cupy.ndarray` of shape ``(nq,)`` with the normalized q-point weights.
+
+    Raises
+    ------
+    ValueError
+        If the specified temperature is not found in the input file.
+
+    """
     with h5py.File(filename, "r") as h5f:
         available_temperatures = list(h5f["temperature"][()])
         if temperature in available_temperatures:
@@ -545,7 +613,41 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
 
 
 def save_solver_result(filename, solver, **kwargs):
-    """Save the solver results to an HDF5 file."""
+    r"""Save a solver run to an HDF5 file.
+
+    This is a light-weight, analysis-friendly snapshot of a full frequency-domain solve, including the temperature
+    response, Wigner distribution, and iteration metadata.
+
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        Path to the output HDF5 file.
+    solver : greenWTE.solver.SolverBase
+        A solver instance (e.g., :py:class:`iterative.IterativeWTESolver` or :py:class:`green.GreenWTESolver`) that
+        exposes the recorded arrays as attributes.
+    **kwargs : dict
+        Additional key-value pairs to store as datasets in the root group. Scalars, lists, and arrays are supported.
+
+    Notes
+    -----
+    The function records (if available):
+
+    - ``dT``: complex temperature response over frequencies ``(Nw,)``.
+    - ``dT_init``: initial guess ``(Nw,)``.
+    - ``n``: Wigner distribution ``(Nw, nq, m)`` or similar aggregate.
+    - ``niter``: number of outer iterations per frequency.
+    - ``iter_time``: wall-clock time per frequency [s].
+    - ``gmres_residual``: GMRES residual history (ragged) concatenated.
+    - ``dT_iterates``: stored iterates of ``dT`` (stacked).
+    - ``n_norms``: norms of ``n`` per outer iteration.
+    - ``source``: source term used in the solve.
+    - ``omega``: angular frequencies [rad/s].
+    - ``k``: wavevector magnitudes [rad/m].
+
+    In addition, command-line arguments found in ``solver.command_line_args`` are
+    persisted as datasets if present.
+
+    """
     with h5py.File(filename, "w") as h5f:
         h5f.create_dataset("dT", data=solver.dT.get())
         h5f.create_dataset("dT_init", data=solver.dT_init.get())

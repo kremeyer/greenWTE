@@ -43,4 +43,5 @@ autodoc_default_options = {
     "private-members": True,
     "show-inheritance": True,
     "inherited-members": True,
+    "special-members": "__init__,__getitem__,__iter__",
 }

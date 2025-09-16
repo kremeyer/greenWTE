@@ -15,29 +15,47 @@ from scipy.optimize import root
 
 
 class Material:
-    """Material specific container class for physical properties.
+    """Container for material-specific properties used by WTE solvers.
 
-    This class can either be populated by passing arrays directly or by loading information from the output of a
-    phono3py calculation.
-
+    A :py:class:`~greenWTE.base.Material` holds the arrays and scalars that define a crystalline model at a given
+    temperature, including the velocity operator, phonon frequencies, linewidths, heat capacities and the simulation
+    cell volume. Instances can be created directly from CuPy arrays or loaded from a :py:mod:`phono3py` result via
+    :py:meth:`~greenWTE.base.Material.from_phono3py`.
+    
     Parameters
     ----------
     temperature : float
-        The temperature at which to evaluate the material properties.
+        Background temperature [K]
     velocity_operator : cupy.ndarray
-        The velocity operator, shape (nq, nat3, nat3).
+        The velocity operator in m/s, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies, shape (nq, nat3).
+        The phonon frequencies in rad/s, shape (nq, nat3).
     linewidth : cupy.ndarray
-        The linewidths, shape (nq, nat3).
+        The linewidths in rad/s, shape (nq, nat3).
     heat_capacity : cupy.ndarray
-        The heat capacities, shape (nq, nat3).
+        The heat capacities in J/m^3/K, shape (nq, nat3).
     volume : float
         The volume of the unit cell in m^3.
     qpoint : cupy.ndarray, optional
         The q-point coordinates, shape (3). Not required to solve the WTE.
-    name : str
+    name : str, optional
         The name of the material.
+
+    Attributes
+    ----------
+    dtyper : cupy.dtype
+        The data type for the real-valued arrays.
+    dtypec : cupy.dtype
+        The data type for the complex-valued arrays.
+    nq : int
+        The number of q-points.
+    nat3 : int
+        The number of phonon modes (3 times the number of atoms in the unit cell).
+
+    Notes
+    -----
+    All array attributes are expected to be :py:class:`cupy.ndarray` so that downstream kernels run on the GPU. If you
+    pass NumPy arrays, they should be converted by the caller before construction.
 
     """
 
@@ -70,7 +88,7 @@ class Material:
     def from_phono3py(
         cls, filename, temperature, dir_idx=0, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128
     ):
-        """Load material properties from a phono3py output file.
+        """Construct a :py:class:`~greenWTE.base.Material` from a :py:mod:`phono3py` HDF5 output.
 
         Parameters
         ----------
@@ -79,14 +97,15 @@ class Material:
         temperature : float
             The temperature at which to load the data.
         dir_idx : int, optional
-            The index of the directory containing the output files. Default is 0.
+            The index of the directory containing the output files. Default is 0, which corresponds to the x-direction.
         exclude_gamma : bool, optional
             Whether to exclude the gamma point from the calculations. This will skip the loading the first
-            q-point for each quantity. Default is True.
+            q-point for each quantity. Default is True, because the acoustic phonons have zero frequency at the Gamma
+            point.
         dtyper : cupy.dtype, optional
-            The data type for the real parts of the matrices. Default is cp.float64.
+            The data type for the real parts of the matrices.
         dtypec : cupy.dtype, optional
-            The data type for the complex matrices. Default is cp.complex128.
+            The data type for the complex matrices.
 
         Returns
         -------
@@ -120,7 +139,7 @@ class Material:
         return f"{self.name}@{self.temperature}K with {self.nq} qpoints and {self.nat3} modes"
 
     def __getitem__(self, iq):
-        """Get a specific q-point from the material.
+        """Return a single-q-point :py:class:`~greenWTE.base.Material`.
 
         Parameters
         ----------
@@ -130,7 +149,7 @@ class Material:
         Returns
         -------
         Material
-            A new Material instance with the properties of the specified q-point.
+            A shallow view where all array attributes are sliced at `iq` and scalars are preserved.
 
         """
         return Material(
@@ -158,12 +177,21 @@ class Material:
 
 
 class AitkenAccelerator:
-    """Aitken's delta-squared process for accelerating convergence of sequences. `Wiki <https://en.wikipedia.org/wiki/Aitken%27s_delta-squared_process>`_.
+    r"""Delta-squared acceleration for fixed-point iterations.
+
+    The accelerator stores the last few iterates of the scalar complex sequence :math:`\{\Delta T^{(k)}\}` and applies
+    Aitken's :math:`\Delta^2` formula to propose an improved iterate.
 
     Attributes
     ----------
     history : list
         A list to store the history of temperature changes dT. The last three entries are used for the acceleration.
+
+    Notes
+    -----
+    See `Wikipedia`_ for details. 
+    
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Aitken%27s_delta-squared_process
 
     """
 
@@ -172,7 +200,7 @@ class AitkenAccelerator:
         self.history = []
 
     def reset(self):
-        """Reset the AitkenAccelerator history."""
+        """Clear the AitkenAccelerator history."""
         self.history.clear()
 
     def update(self, dT_new):
@@ -203,27 +231,31 @@ class AitkenAccelerator:
 
 
 def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128):
-    """Estimate the initial temperature change dT for a given temporal Fourier variable omg_ft.
+    r"""Estimate the initial guess for :math:`\Delta T(\omega)`.
 
-    Try to interpolate the dT values from the history of previous omg_ft values. If no history is available, we
-    return a default of (1.0+1.0j).
+    Try to interpolate the values of :math:`\Delta T(\omega)` from history of previous values. If no history is
+    available, we return a default of ``1.0 + 1.0j``.
 
     Parameters
     ----------
     omg_ft : float
-        The temporal Fourier variable [rad/s].
-    history : list of tuples
-        A list of (omg_ft, dT) tuples representing the history of previous temperature changes.
+        Temporal Fourier variable in rad/s.
+    history : Sequence[tuple[float, complex]]
+        Sequence of previously solve ``(omg_ft, dT)`` pairs.
     dtyper : cupy.dtype, optional
-        The data type for the real parts of the matrices, default is cp.float64.
+        Data type for the real parts of the matrices.
     dtypec : cupy.dtype, optional
-        The data type for the complex matrices, default is cp.complex128.
+        Data type for the complex matrices.
 
     Returns
     -------
-    dT_guess : cupy.ndarray
-        The estimated initial temperature change dT [K] for the given omg_ft. If no history is available, returns
-        (1.0 + 1.0j).
+    complex
+        Interpolated guess for :math:`\Delta T(\omega)`. If fewer than two history points are available, returns
+        ``1.0 + 1.0j``.
+
+    Notes
+    -----
+    Uses PCHIP interlator from :py:class:`cupyx.scipy.interpolate.PchipInterpolator`.
 
     """
     if not history:
@@ -243,84 +275,70 @@ def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128
 
 
 class SolverBase(ABC):
-    r"""Abstract base class for Wigner Transport Equation (WTE) solvers.
+    r"""Abstract base class for Wigner Transport Equation solvers.
 
-    This class defines the common interface, data structures, and solver
-    control logic for computing the Wigner distribution function `n` and
-    derived transport quantities such as flux and thermal conductivity
-    from a given material model, source term, and temporal Fourier
-    frequency grid.
+    This class defines the common interface, data structures, and solver control logic for computing the Wigner
+    distribution function `n` and derived transport quantities such as flux and thermal conductivity from a given
+    material model, source term, and temporal Fourier frequency grid.
 
-    Concrete subclasses must implement the :meth:`_dT_to_N` method to
-    perform the actual mapping from a temperature change ``dT`` to the
-    Wigner distribution function ``n`` for a specific solver
-    implementation.
+    Concrete subclasses must implement the :py:meth:`_dT_to_N` method to perform the actual mapping from a temperature
+    change ``dT`` to the Wigner distribution function ``n`` for a specific solver implementation.
 
     The class supports multiple outer-solver strategies:
     - **plain**: fixed-point iteration
     - **aitken**: Aitken's Δ² acceleration of fixed-point iteration
-    - **root**: root finding in real/imag space
+    - **root**: root finding on the complex plane using :py:func:`scipy.optimize.root`
+    - **none**: single mapping without iteration
 
     Parameters
     ----------
     omg_ft_array : cupy.ndarray
-        1D array of temporal Fourier variables :math:`\omega` [rad/s] for which
-        the WTE will be solved.
+        1D array of temporal Fourier variables in rad/s for which the WTE will be solved.
     k_ft : float
-        Magnitude of the spatial Fourier variable :math:`k` [m⁻¹].
-    material : Material
-        Material object containing the necessary physical properties
-        (phonon frequencies, linewidths, heat capacities, etc.).
+        Magnitude of the spatial Fourier variable in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material object containing the necessary material properties.
     source : cupy.ndarray
-        Source term of the WTE, with shape ``(nq, nat3, nat3)``.
+        Source term of the WTE, with shape (nq, nat3, nat3).
+    source_type : str
+        The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source
+        terms, the offdiagonal elements are scaled by dT.
+    dT_init : complex, optional
+        Initial guess for :math:`\Delta T` used by the outer solver.
     max_iter : int, optional
-        Maximum number of iterations for the outer solver (default is 100).
-    conv_thr : float, optional
-        Convergence threshold for the outer solver. The exact interpretation
-        depends on the outer solver method (default is 1e-12).
-    outer_solver : {'root', 'aitken', 'plain'}, optional
-        Outer solver strategy to use. One of:
-        - ``'root'``: nonlinear root finding in 2D space (real & imaginary parts)
-        - ``'aitken'``: Aitken Δ² acceleration applied to fixed-point iteration
-        - ``'plain'``: plain fixed-point iteration without acceleration
-        Default is ``'root'``.
+        Maximum number of iterations for the outer solver.
+    conv_thr_rel : float, optional
+        The relative convergence threshold for the solver.
+    conv_thr_abs : float, optional
+        The absolute convergence threshold for the solver.
+    outer_solver : {'plain', 'aitken', 'root', 'none'}, optional
+        Outer-solver strategy. ``'root'`` uses :func:`scipy.optimize.root`, ``'plain'`` is fixed-point, ``'aitken'``
+        applies :class:`~greenWTE.base.AitkenAccelerator`, and ``'none'`` performs a single mapping.
     command_line_args : argparse.Namespace, optional
-        Optional namespace of parsed command-line arguments for controlling
-        solver behavior or I/O (default is an empty Namespace).
+        Optional namespace of parsed command-line arguments to be added to the results file.
+    print_progress : bool, optional
+        If ``True``, prints progress while solving.
 
     Attributes
     ----------
     dT : cupy.ndarray
-        Temperature change [K] for each frequency, shape ``(n_omg_ft,)``.
-    dT_init : cupy.ndarray
-        Initial guess for `dT` for each frequency, shape ``(n_omg_ft,)``.
+        Converged complex temperature changes, shape (n_omg_ft,).
     n : cupy.ndarray
-        Wigner distribution function for each frequency, shape
-        ``(n_omg_ft, nq, nat3, nat3)``.
-    niter : cupy.ndarray
-        Number of outer-solver iterations taken for each frequency,
-        shape ``(n_omg_ft,)``.
-    iter_time_list : list of list of float
-        Iteration times (seconds) for each frequency.
-    dT_iterates_list : list of list of complex
-        Sequence of `dT` values over iterations for each frequency.
-    n_norm_list : list of list of float
-        Sequence of norms in `n` over iterations for each frequency.
-    gmres_residual_list : list
-        GMRES residuals from the inner solver (if applicable).
-    history : list of tuple
-        List of ``(omega_ft, dT)`` pairs from previous runs (used for initial guesses).
-    progress : bool
-        If ``True``, prints progress for single-frequency solves.
+        Computed Wigner distributions, shape (n_omg_ft, nq, nat3, nat3).
 
     Notes
     -----
-    - The solver stores intermediate convergence data in lists during the run.
-      After solving all frequencies, :meth:`_solution_lists_to_arrays` can
-      be used to convert them into CuPy arrays with NaN padding for easier
+    - The solver stores intermediate convergence data in lists during the run. After solving all frequencies,
+      :py:meth:`_solution_lists_to_arrays` can be used to convert them into CuPy arrays with NaN padding for easier
       post-processing.
-    - The actual numerical strategy for mapping ``dT`` to ``n`` is deferred
-      to subclasses via the :meth:`_dT_to_N` method.
+    - The actual numerical strategy for mapping ``dT`` to ``n`` is deferred to subclasses via the :py:meth:`_dT_to_N`
+      method.
+
+    See Also
+    --------
+    :py:class:`~greenWTE.iterative.IterativeWTESolver` : WTE solver using iterative methods.
+    :py:class:`~greenWTE.green.GreenWTESolver` : WTE solver using precomputed Green's operators.
 
     """
 
@@ -384,15 +402,23 @@ class SolverBase(ABC):
         omg_idx: int,
         sol_guess: cp.ndarray | None = None,
     ) -> tuple[cp.ndarray, list]:
-        """Implement by subclasses to solve for the Wigner distribution function n from dT."""
+        """Map a temperature change to a Wigner distribution ``n``.
+        
+        Subclasses must implement this method.
+        """
 
     def _dT_converged(self, dT, dT_new):
-        """Check convergence in dT.
+        r"""Check whether two successive :math:`\Delta T` iterates meet the thresholds.
 
+        Parameters
+        ----------
+        dT, dT_new : complex
+            The previous and current temperature changes dT.
+        
         Returns
         -------
         bool
-            True if dT has converged, False otherwise.
+            ``True`` absolute and relative convergence criteria are met.
 
         """
         r = dT - dT_new
@@ -402,11 +428,12 @@ class SolverBase(ABC):
         return r_abs <= thresh
 
     def run(self):
-        """Run the WTE solver for each temporal Fourier variable in omg_ft_array.
+        r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
-        This method uses the specified outer solver (Aitken, plain, or root) to solve the WTE for each omg_ft in
-        omg_ft_array. After running, the results are stored in the class attributes dT, dT_init, n, niter,
-        n_norms, iter_time_list, dT_iterates_list, n_norm_list, and gmres_residual_list.
+        The outer iteration chosen by :paramref:`~greenWTE.base.SolverBase.__init__.outer_solver` is used to find
+        self-consistent solutions for the temperature changes :math:`\Delta T(\omega)` and the Wigner distribution.
+        After running, the results are stored in the class attributes dT, dT_init, n, niter, n_norms, iter_time,
+        dT_iterates, and gmres_residual.
         """
         if self.outer_solver == "aitken":
             run_func = self._run_solver_aitken
@@ -469,16 +496,16 @@ class SolverBase(ABC):
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [rad/s] for which the WTE will be solved.
+            The temporal Fourier variable in rad/s for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [rad/s].
+            The input temporal Fourier variable in rad/s.
         dT : complex
-            The calculated temperature change dT [K] for the given omg_ft.
+            The calculated temperature change dT in K for the given omg_ft.
         dT_init : complex
-            The initial temperature change dT [K] estimated for the given omg_ft.
+            The initial temperature change dT in K estimated for the given omg_ft.
         n : cupy.ndarray
             The wigner distribution function n for the given omg_ft, shape (nq, nat3, nat3).
         niter : int
@@ -538,23 +565,23 @@ class SolverBase(ABC):
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _run_solver_plain(self, omg_idx, omg_ft):
-        """Run the WTE solver without acceleration, iterating until convergence.
+        """Run the WTE solver using simple fixed-point iteration.
 
         Parameters
         ----------
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [rad/s] for which the WTE will be solved.
+            The temporal Fourier variable in rad/s for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [rad/s].
+            The input temporal Fourier variable in rad/s.
         dT : complex
-            The calculated temperature change dT [K] for the given omg_ft.
+            The calculated temperature change dT in K for the given omg_ft.
         dT_init : complex
-            The initial temperature change dT [K] estimated for the given omg_ft.
+            The initial temperature change dT in K estimated for the given omg_ft.
         n : cupy.ndarray
             The wigner distribution function n for the given omg_ft, shape (nq, nat3, nat3).
         niter : int
@@ -614,7 +641,41 @@ class SolverBase(ABC):
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _run_solver_none(self, omg_idx, omg_ft):
-        """Fix dT; no iterations."""
+        """Run the WTE solver without outer iterations, performing a single mapping from dT to n.
+
+        Parameters
+        ----------
+        omg_idx : int
+            The index of the temporal Fourier variable for which the WTE will be solved.
+        omg_ft : float
+            The temporal Fourier variable in rad/s for which the WTE will be solved.
+
+        Returns
+        -------
+        omg_ft : float
+            The input temporal Fourier variable in rad/s.
+        dT : complex
+            The calculated temperature change dT in K for the given omg_ft.
+        dT_init : complex
+            The initial temperature change dT in K estimated for the given omg_ft.
+        n : cupy.ndarray
+            The wigner distribution function n for the given omg_ft, shape (nq, nat3, nat3).
+        niter : int
+            The number of iterations taken for the outer solver to converge for the given omg_ft.
+        iter_times : list
+            A list of iteration times for the outer solver for the given omg_ft.
+        dT_iterates : list
+            A list of iteration values for the temperature changes dT for the given omg_ft.
+        n_norms : list
+            A list of norms for the wigner distribution function n for the given omg_ft.
+        gmres_residual : list
+            A list of GMRES residuals for the given omg_ft. Empty if the inner solver is not GMRES.
+
+        Notes
+        -----
+        The lengthy return signature is to maintain compatibility with the other outer solvers.
+
+        """
         dT = self.dT_init_user
         n = None
         iter_times = []
@@ -643,25 +704,23 @@ class SolverBase(ABC):
         return omg_ft, dT, dT, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _run_solver_root(self, omg_idx, omg_ft):
-        """Run the WTE solver using root finding to solve for the temperature change dT.
-
-        Usually converges MUCH faster than Aitken or plain methods.
+        """Run the WTE solver using SciPy's root-finding algorithm :py:mod:scipy.optimize.root`.
 
         Parameters
         ----------
         omg_idx : int
             The index of the temporal Fourier variable for which the WTE will be solved.
         omg_ft : float
-            The temporal Fourier variable [rad/s] for which the WTE will be solved.
+            The temporal Fourier variable in rad/s for which the WTE will be solved.
 
         Returns
         -------
         omg_ft : float
-            The input temporal Fourier variable [rad/s].
+            The input temporal Fourier variable in rad/s.
         dT : complex
-            The calculated temperature change dT [K] for the given omg_ft.
+            The calculated temperature change dT in K for the given omg_ft.
         dT_init : complex
-            The initial temperature change dT [K] estimated for the given omg_ft.
+            The initial temperature change dT in K estimated for the given omg_ft.
         n : cupy.ndarray
             The wigner distribution function n for the given omg_ft, shape (nq, nat3, nat3).
         niter : int
@@ -771,7 +830,7 @@ class SolverBase(ABC):
         return omg_ft, dT, dT_init, n, niter, iter_times, dT_iterates, n_norms, gmres_residual
 
     def _solution_lists_to_arrays(self):
-        """Convert the lists of iteration times, dT convergence, n convergence, and GMRES residuals into cupy arrays.
+        """Convert the lists of iteration times, dT iterates, n norms, and GMRES residuals into cupy arrays.
 
         We can only do that after all omg_ft have been solved, since the lengths of the lists can vary. All entries in
         the lists are padded with NaNs.
@@ -810,23 +869,16 @@ class SolverBase(ABC):
         self.gmres_residual = gmres_residual_array
 
     @property
-    def flux(self, recompute=False):
-        """Calculate the thermal flux.
-
-        Calculate J from the Wigner distribution function n and the velocity operator.
-
-        Parameters
-        ----------
-        recompute : bool, optional
-            If True, recomputes the flux even if it has already been calculated. Default is False.
+    def flux(self):
+        """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
         Returns
         -------
-        flux : cupy.ndarray
-            The thermal flux [W/m^2] for each omg_ft, shape (n_omg_ft, nq, nat3, nat3).
+        cupy.ndarray
+            The thermal flux in W/m^2 for each omg_ft, shape (n_omg_ft, nq, nat3, nat3).
 
         """
-        if self._flux is not None and not recompute:
+        if self._flux is not None:
             return self._flux
         if not self.iter_time_list:
             raise RuntimeError("Solver has not been run yet. Please run the solver first.")
@@ -839,14 +891,14 @@ class SolverBase(ABC):
 
     @property
     def kappa(self):
-        """Calculate the total thermal conductivity kappa.
+        r"""Total thermal conductivity :math:`\kappa(\omega)`.
 
-        Compute kappa from the Wigner distribution function n and the temperature change dT.
+        Compute kappa from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
 
         Returns
         -------
-        kappa : cupy.ndarray
-            The thermal conductivity [W/m/K] for each omg_ft, shape (n_omg_ft,).
+        cupy.ndarray
+            The thermal conductivity in W/m/K for each omg_ft, shape (n_omg_ft,).
 
         """
         if self._kappa is not None:
@@ -861,14 +913,14 @@ class SolverBase(ABC):
 
     @property
     def kappa_p(self):
-        """Calculate the thermal conductivity contribution from the populations.
+        r"""Ppopulation thermal conductivity :math:`\kappa_\mathrm{P}(\omega)`.
 
-        Calculate kappa_p from the Wigner distribution function n and the temperature change dT.
+        Compute kappa_P from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
 
         Returns
         -------
-        kappa_p : cupy.ndarray
-            The thermal conductivity [W/m/K] contribution from the populations for each omg_ft, shape (n_omg_ft,).
+        cupy.ndarray
+            The population thermal conductivity in W/m/K for each omg_ft, shape (n_omg_ft,).
 
         """
         if self._kappa_p is not None:
@@ -883,14 +935,14 @@ class SolverBase(ABC):
 
     @property
     def kappa_c(self):
-        """Calculate the thermal conductivity contribution from the coherences.
+        r"""Coherence thermal conductivity :math:`\kappa_\mathrm{C}(\omega)`.
 
-        Calculate kappa_c from the Wigner distribution function n and the temperature change dT.
+        Compute kappa_C from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
 
         Returns
         -------
-        kappa_c : cupy.ndarray
-            The thermal conductivity [W/m/K] contribution from the coherences for each omg_ft, shape (n_omg_ft,).
+        cupy.ndarray
+            The coherence thermal conductivity in W/m/K for each omg_ft, shape (n_omg_ft,).
 
         """
         if self._kappa_c is not None:
@@ -907,16 +959,14 @@ class SolverBase(ABC):
 
 
 def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.ndarray:
-    """Elementwise num/den with 0 where abs(den)<=eps (avoids 0/0 -> NaN).
+    """Element-wise division with broadcasting and protection against zeros.
 
     Parameters
     ----------
-    num : array-like or scalar
-        The numerator.
-    den : array-like or scalar
-        The denominator.
+    num, den : array-like
+        Numerator and denominator. Broadcastable to a common shape.
     eps : float, optional
-        A small value to avoid division by zero. Default is 1e-300.
+        Small real added to ``|den|`` to avoid division by zero.
 
     Returns
     -------
@@ -941,42 +991,50 @@ def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.nd
 
 
 def N_to_dT(n: cp.ndarray, material: Material) -> complex:
-    """Calculate the temperature change dT for a wigner distribution n.
+    r"""Compute :math:`\Delta T` from a Wigner distribution.
 
     Parameters
     ----------
     n : cupy.ndarray
-        The wigner distribution function n, shape (nq, nat3, nat3).
-    material : Material
-        The material object containing phonon frequencies, heat capacity, and volume.
+        Wigner distribution function n, shape (nq, nat3, nat3).
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
 
     Returns
     -------
     complex
         The temperature change dT.
+
+    See Also
+    --------
+    _N_to_dT : Core function that computes dT from n and material properties.
 
     """
     return _N_to_dT(n, material.phonon_freq, material.heat_capacity, material.volume)
 
 
 def _N_to_dT(n: cp.ndarray, phonon_freq: cp.ndarray, heat_capacity: cp.ndarray, volume: float) -> complex:
-    """Calculate the temperature change dT for a wigner distribution n.
+    r"""Compute :math:`\Delta T` from a Wigner distribution.
 
     Parameters
     ----------
     n : cupy.ndarray
         The wigner distribution function n, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies [rad/s], shape (nq, nat3).
+        The phonon frequencies in rad/s, shape (nq, nat3).
     heat_capacity : cupy.ndarray
-        The heat capacity [J/m^3/K] of the phonon modes, shape (nq, nat3).
+        The heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
     volume : float
-        The volume of the cell [m^3].
+        The volume of the cell in m^3.
 
     Returns
     -------
     complex
         The temperature change dT.
+
+    See Also
+    --------
+    N_to_dT : Wrapper function that extracts material properties from a Material instance.
 
     """
     nq = n.shape[0]
@@ -1001,43 +1059,49 @@ def dT_to_N_iterative(
     conv_thr_abs=0,
     progress=False,
 ) -> tuple[cp.ndarray, list]:
-    """Calculate the wigner distribution function n from the temperature change dT.
+    r"""Fixed-point mapping :math:`\Delta T \mapsto n` using iterative linear solves.
 
-    This function solves the linear equation system that arises from the WTE for the wigner distribution function n
+    This function solves the linear system of equations that arises from the WTE for the wigner distribution function n
     for a given temperature change dT.
 
     Parameters
     ----------
     dT : complex
-        The temperature change dT [K].
+        The temperature change dT in K.
     omg_ft : float
-        The temporal Fourier variable [rad/s].
+        The temporal Fourier variable in rad/s.
     k_ft : float
-        The thermal grating wavevector [rad/m].
-    material : Material
-        The material object containing phonon frequencies, heat capacity, and volume.
+        The thermal grating wavevector in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
     source_type : str
         The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
-        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
-        the offdiagonal elements are scaled by dT.
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source
+        terms, the offdiagonal elements are scaled by dT.
     sol_guess : cupy.ndarray, optional
         The initial guess for the solution, shape (nq, nat3, nat3).
-    solver : {"gmres", "cgesv"}
-        The solver to use for the linear system. gmres uses :func:`cupyx.scipy.sparse.linalg.gmres`, while cgesv uses
-        :func:`cupy.linalg.solve`.
-    conv_thr : float, optional
-        The convergence threshold for the solver, default is 1e-12.
+    solver : {'gmres', 'direct'}, optional
+        Inner linear solver. ``'gmres'`` uses :py:func:`cupyx.scipy.sparse.linalg.gmres`; ``'direct'`` uses
+        :py:func:`cupy.linalg.solve` to perform a dense factorization on the GPU.
+    conv_thr_rel : float, optional
+        The relative convergence threshold for the solver.
+    conv_thr_abs : float, optional
+        The absolute convergence threshold for the solver.
     progress : bool, optional
-        If True, a `.` is printed after each iteration to indicate progress. Default is False.
+        If True, a `.` is printed after each iteration to indicate progress.
 
     Returns
     -------
-    n : cupy.ndarray
+    cupy.ndarray
         The Wigner distribution function n, shape (nq, nat3, nat3).
-    outer_residuals : list
+    list
         A list of residuals for each iteration of the solver.
+
+    See Also
+    --------
+    _dT_to_N_iterative : Core function that computes n from dT and material properties.
 
     """
     return _dT_to_N_iterative(
@@ -1080,55 +1144,56 @@ def _dT_to_N_iterative(
     conv_thr_abs=0,
     progress=False,
 ) -> tuple[cp.ndarray, list]:
-    """Calculate the wigner distribution function n from the temperature change dT.
+    r"""Fixed-point mapping :math:`\Delta T \mapsto n` using iterative linear solves.
 
-    This function solves the linear equation system that arises from the WTE for the wigner distribution function n
-    for a given temperature change dT in an iterative manner. This is much slower than the direct method, but does not
-    require knowledge of the Green's function.
+    This function solves the linear system of equations that arises from the WTE for the wigner distribution function n
+    for a given temperature change dT.
 
     Parameters
     ----------
     dT : complex
-        The temperature change dT [K].
+        The temperature change dT in K.
     omg_ft : float
-        The temporal Fourier variable [rad/s].
+        The temporal Fourier variable in rad/s.
     k_ft : float
-        The thermal grating wavevector [rad/m].
+        The thermal grating wavevector in rad/m.
     phonon_freq : cupy.ndarray
-        The phonon frequencies [rad/s], shape (nq, nat3).
+        The phonon frequencies in rad/s, shape (nq, nat3).
     linewidth : cupy.ndarray
-        The linewidths [rad/s], shape (nq, nat3).
+        The linewidths in rad/s, shape (nq, nat3).
     velocity_operator : cupy.ndarray
         The velocity operator for the phonon modes, shape (nq, nat3, nat3).
     heat_capacity : cupy.ndarray
-        The heat capacity [J/m^3/K] of the phonon modes, shape (nq, nat3).
+        The heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
     volume : float
-        The volume of the cell [m^3].
+        The volume of the cell in m^3.
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
     source_type : str
         The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
-        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
-        the offdiagonal elements are scaled by dT.
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source
+        terms, the offdiagonal elements are scaled by dT.
     sol_guess : cupy.ndarray, optional
         The initial guess for the solution, shape (nq, nat3, nat3).
     dtyper : cupy.dtype, optional
-        The data type for the real parts of the matrices, default is cp.float64.
+        The real dtype to use.
     dtypec : cupy.dtype, optional
-        The data type for the complex matrices, default is cp.complex128.
-    solver : {"gmres", "cgesv"}
-        The solver to use for the linear system. gmres uses :func:`cupyx.scipy.sparse.linalg.gmres`, while cgesv uses
-        :func:`cupy.linalg.solve`.
-    conv_thr : float, optional
-        The convergence threshold for the solver, default is 1e-12.
+        The complex dtype to use.
+    solver : {'gmres', 'direct'}, optional
+        Inner linear solver. ``'gmres'`` uses :py:func:`cupyx.scipy.sparse.linalg.gmres`; ``'direct'`` uses
+        :py:func:`cupy.linalg.solve` to perform a dense factorization on the GPU.
+    conv_thr_rel : float, optional
+        The relative convergence threshold for the solver.
+    conv_thr_abs : float, optional
+        The absolute convergence threshold for the solver.
     progress : bool, optional
-        If True, a `.` is printed after each iteration to indicate progress. Default is False.
+        If True, a `.` is printed after each iteration to indicate progress.
 
     Returns
     -------
-    n : cupy.ndarray
+    cupy.ndarray
         The Wigner distribution function n, shape (nq, nat3, nat3).
-    outer_residuals : list
+    list
         A list of residuals for each iteration of the solver.
 
     """
@@ -1218,30 +1283,28 @@ def dT_to_N_matmul(
     source: cp.ndarray,
     source_type: str = "energy",
 ) -> cp.ndarray:
-    """Calculate the wigner distribution function n from the temperature change dT.
+    r"""Fixed-point mapping :math:`\Delta T \mapsto n` using precomputed Green operators.
 
-    With knowledge of the Green's function one can obtain the Wigner distribution function n directly via matrix
-    multiplication of the Green's function with the source term. No need to iteratively solve a linear system of
-    equations.
+    This variant assumes a Green operator has been precomputed and can be applied via batched matrix-matrix products.
 
     Parameters
     ----------
     dT : complex
-        The temperature change dT [K].
-    material: Material
-        The material object containing all relevant properties.
+        The temperature change dT in K.
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
     source : cupy.ndarray
         The source term of the WTE, shape (nq, nat3, nat3).
     source_type : str
         The type of the source term, either "energy" or "gradient". When injecting energy through the source term, there
-        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source terms,
-        the offdiagonal elements are scaled by dT.
+        is no additional factor of dT for the offdiagonals of the source. For the temperature gradient type source
+        terms, the offdiagonal elements are scaled by dT.
     green : cupy.ndarray
         The Green's function, shape (nq, nat3, nat3).
 
     Returns
     -------
-    n : cupy.ndarray
+    cupy.ndarray
         The Wigner distribution function n, shape (nq, nat3, nat3).
 
     Notes
@@ -1294,30 +1357,38 @@ def dT_to_N_matmul(
 
 
 def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:
-    """Evaluate the thermal flux from the Wigner distribution function n.
+    """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
-    It corresponds to Equation (42) in Phys. Rev. X 12, 041011 [https://doi.org/10.1103/PhysRevX.12.041011].
+    It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
+     
+    .. _Phys. Rev. X 12, 041011: https://doi.org/10.1103/PhysRevX.12.041011
 
     Parameters
     ----------
     n : cupy.ndarray
         The wigner distribution function n, shape (nq, nat3, nat3).
-    material : Material
-        The material object containing velocity operator, phonon frequencies, and volume.
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
 
     Returns
     -------
-    flux : cupy.ndarray
+    cupy.ndarray
         The thermal flux calculated from the Wigner distribution function n, shape (nq, nat3, nat3).
+
+    See Also
+    --------
+    _flux_from_n : Core function that computes the flux from n and material properties.
 
     """
     return _flux_from_n(n, material.velocity_operator, material.phonon_freq, material.volume)
 
 
 def _flux_from_n(n, velocity_operator, phonon_freq, volume):
-    """Evaluate the thermal flux from the Wigner distribution function n.
+    """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
-    It corresponds to Equation (42) in Phys. Rev. X 12, 041011 [https://doi.org/10.1103/PhysRevX.12.041011].
+    It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
+     
+    .. _Phys. Rev. X 12, 041011: https://doi.org/10.1103/PhysRevX.12.041011
 
     Parameters
     ----------
@@ -1332,8 +1403,12 @@ def _flux_from_n(n, velocity_operator, phonon_freq, volume):
 
     Returns
     -------
-    flux : cupy.ndarray
+    cupy.ndarray
         The thermal flux calculated from the Wigner distribution function n, shape (nq, nat3, nat3).
+
+    See Also
+    --------
+    flux_from_n : Wrapper function that extracts material properties from a Material instance.
 
     """
     freq_sum = phonon_freq[:, :, None] + phonon_freq[:, None, :]
@@ -1405,13 +1480,13 @@ def kappa_eff_prb(k_ft, linewidth, group_velocity, heat_capacity):  # pragma: no
     k_ft : float
         The thermal grating wavevector in rad/m.
     linewidth, group_velocity, heat_capacity : array_like
-        The linewidth [rad/s], group velocity [m/s], and heat capacity [J/m^3/K] of the phonon modes. 2D arrays with
+        The linewidth in rad/s, group velocity in m/s, and heat capacity in J/m^3/K of the phonon modes. 2D arrays with
         shape (nq, nat3). Note that the group velocity is expected to be along the grating wavevector direction.
 
     Returns
     -------
     float
-        The effective thermal conductivity [W/m/K].
+        The effective thermal conductivity in W/m/K.
 
     """
     linewidth = linewidth.flatten()

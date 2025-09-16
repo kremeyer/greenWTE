@@ -1,18 +1,25 @@
-"""Module for setting up predefined source terms for the WTE solver."""
+"""Module for setting up predefined source terms for the WTE solver.
+
+Provides energy-injection sources (``diag``, ``full``, ``offdiag``) and a gradient-driven source (``gradT``) used by the
+solvers. All functions return a **complex** tensor with shape ``(nq, nat3, nat3)`` and will promote real inputs to
+``complex64``/``complex128`` based on the floating dtype of the provided arrays.
+"""
 
 import cupy as cp
 from scipy.constants import hbar
 
 
 def source_term_diag(heat_capacity):
-    """Construct the source term for diagonal heating.
+    """Diagonal heating source.
 
-    Heating of each mode is proportional to its heat capacity. Off-diagonal entries are zero.
+    Construct :math:`P(q)` with diagonal entries proportional to the mode heat capacity at each :math:`q`, with all
+    off-diagonal entries set to zero. The diagonal is normalized by the **total** heat capacity summed over all
+    ``(q, m)`` so that the sum over all diagonal elements across all ``q`` equals 1.
 
     Parameters
     ----------
     heat_capacity : cupy.ndarray
-        Heat capacity of each mode, shape (nq, nat3).
+        Heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
 
     Returns
     -------
@@ -34,14 +41,16 @@ def source_term_diag(heat_capacity):
 
 
 def source_term_full(heat_capacity):
-    """Construct the source term for full heating.
+    """Full heating source.
 
-    Heating of each entry is proportional to its heat capacity.
+    Construct :math:`P(q)` with entries proportional to the outer product of per-mode heat capacities at the same
+    :math:`q`, normalized by the **square** of the total heat capacity: ``P[q] = (h ⊗ h) / (∑ h)^2``, where
+    ``h = heat_capacity[q]`` and the sum is over all ``(q, m)``.
 
     Parameters
     ----------
     heat_capacity : cupy.ndarray
-        Heat capacity of each mode, shape (nq, nat3).
+        Heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
 
     Returns
     -------
@@ -60,14 +69,14 @@ def source_term_full(heat_capacity):
 
 
 def source_term_offdiag(heat_capacity):
-    """Construct the source term for off-diagonal heating.
+    """Off-diagonal heating source.
 
-    Heating of each entry is proportional to its heat capacity. All diagonal entries are zero.
+    Construct a dense source as in :func:`source_term_full`, then zero the diagonal entries of each ``P[q]``
 
     Parameters
     ----------
     heat_capacity : cupy.ndarray
-        Heat capacity of each mode, shape (nq, nat3).
+        Heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
 
     Returns
     -------
@@ -82,25 +91,34 @@ def source_term_offdiag(heat_capacity):
 
 
 def source_term_gradT(k_ft, velocity_operator, phonon_freq, linewidth, heat_capacity, volume):
-    """Construct source term to simulate a temperature gradient.
+    r"""Temperature-gradient source.
 
-    We drive the system with the drift term of the WTE ik/2 * {V,N} and subtract the inhomogeneous
-    contribution from the RTA scattering operator 0.5 * (G,N_bar).
+    For each :math:`q`, define :math:`\bar N(q) = \mathrm{diag}\!\left(\frac{V\,n_q}{\hbar\,\omega(q)}\,C(q)\right)` and
+    :math:`G(q) = \mathrm{diag}(\Gamma(q))`, where :math:`V` is the cell volume and :math:`n_q` is the number of
+    :math:`q`-points. Here :math:`\omega` is the phonon frequency, :math:`\Gamma` the linewidth, and :math:`C` the mode
+    heat capacity. The source is
+
+    .. math::
+
+       S(q) = \frac{i\,k}{2}\,\{V(q), \bar N(q)\} \;-\; \frac{1}{2}\,\{G(q), \bar N(q)\},
+
+    with the anticommutator :math:`\{A,B\} = AB + BA`.
+    The overall factor of :math:`\Delta T` is intentionally omitted; the outer solver applies it.
 
     Parameters
     ----------
     k_ft : float
-        The thermal grating wavevector [rad/m].
+        Thermal grating wavevector in rad/m.
     velocity_operator : cupy.ndarray
-        The velocity operator, shape (nq, nat3, nat3).
+        Velocity operator in m/s, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies, shape (nq, nat3).
+        Phonon frequencies in rad/s, shape (nq, nat3).
     linewidth : cupy.ndarray
-        The linewidths of each mode, shape (nq, nat3).
+        Linewidths of each mode in rad/s, shape (nq, nat3).
     heat_capacity : cupy.ndarray
-        The heat capacity of each mode, shape (nq, nat3).
+        Heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
     volume : float
-        The volume of the system [m^3].
+        Volume of the system in m^3.
 
     Returns
     -------
@@ -120,28 +138,28 @@ def source_term_gradT(k_ft, velocity_operator, phonon_freq, linewidth, heat_capa
 
 
 def source_term_anticommutator(k_ft, velocity_operator, phonon_freq, linewidth, heat_capacity, volume):
-    """Construct the source term using the anticommutator of the velocity operator and the temperature gradient.
+    """Temperature-gradient source via anticommutator.
 
-    We drive the system with the drift term of the WTE ik/2 * {V,N} and subtract the inhomogeneous
-    contribution from the RTA scattering operator 0.5 * (G,N_bar).
+    Constructs the same source as :func:`source_term_gradT`. This function is kept for backward
+    compatibility and will be removed in a future release.
 
     .. deprecated:: 0.2.0
-       Please use the :py:func:`source_term_gradT` function instead.
+       Use :func:`source_term_gradT` instead.
 
     Parameters
     ----------
     k_ft : float
-        The thermal grating wavevector [rad/m].
+        Thermal grating wavevector in rad/m.
     velocity_operator : cupy.ndarray
-        The velocity operator, shape (nq, nat3, nat3).
+        Velocity operator in m/s, shape (nq, nat3, nat3).
     phonon_freq : cupy.ndarray
-        The phonon frequencies, shape (nq, nat3).
+        Phonon frequencies in rad/s, shape (nq, nat3).
     linewidth : cupy.ndarray
-        The linewidths of each mode, shape (nq, nat3).
+        Linewidths of each mode in rad/s, shape (nq, nat3).
     heat_capacity : cupy.ndarray
-        The heat capacity of each mode, shape (nq, nat3).
+        Heat capacity of each mode in J/m^3/K, shape (nq, nat3).
     volume : float
-        The volume of the system [m^3].
+        Volume of the system in m^3.
 
     Returns
     -------

@@ -90,9 +90,8 @@ def test_wrong_outer_solver_error():
     with pytest.raises(ValueError, match="Unknown outer solver: invalid"):
         solver.run()
 
-
     rwo = RTAWignerOperator(
-    omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 

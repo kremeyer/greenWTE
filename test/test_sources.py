@@ -1,4 +1,5 @@
 """Test cases for the predefined source terms of the greenWTE package."""
+
 import cupy as cp
 import pytest
 from greenWTE import sources
@@ -52,5 +53,3 @@ def test_source_structure():
 
     src_full = sources.source_term_full(heat_capacity)
     assert cp.all(src_full != 0), "All entries should be non-zero"
-
-

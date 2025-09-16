@@ -117,8 +117,10 @@ def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
 
     return a
 
+
 global STOP
 STOP = False
+
 
 def request_stop(signal: int, frame) -> None:
     """Handle termination signals (SIGINT, SIGTERM, SIGUSR1) with graceful shutdown.

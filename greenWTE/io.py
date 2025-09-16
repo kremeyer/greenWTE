@@ -82,7 +82,7 @@ def _find_or_append_1d(dset, value, atol=0.0):
 
 def _find_index_1d(dset, value, atol=0.0):
     """Find the index of ``value`` in a 1-D dataset.
-    
+
     Parameters
     ----------
     dset : h5py.Dataset
@@ -493,13 +493,13 @@ class GreenContainer:
 
     def omegas(self, k=None):
         r"""Return all stored :math:`\omega` values.
-        
+
         Parameters
         ----------
         k : float, optional
             If provided, return only the frequencies for which **any** q-block exists at this ``k`` (according to the
             mask).
-        
+
         Returns
         -------
         numpy.ndarray
@@ -515,7 +515,7 @@ class GreenContainer:
 
     def ks(self, w=None):
         r"""Return all stored :math:`k` values.
-        
+
         Parameters
         ----------
         w : float, optional
@@ -538,7 +538,7 @@ class GreenContainer:
 
 def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
     r"""Load data from a phono3py-generated HDF5 file.
-    
+
     Parameters
     ----------
     filename : str or os.PathLike

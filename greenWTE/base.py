@@ -21,7 +21,7 @@ class Material:
     temperature, including the velocity operator, phonon frequencies, linewidths, heat capacities and the simulation
     cell volume. Instances can be created directly from CuPy arrays or loaded from a :py:mod:`phono3py` result via
     :py:meth:`~greenWTE.base.Material.from_phono3py`.
-    
+
     Parameters
     ----------
     temperature : float
@@ -189,8 +189,8 @@ class AitkenAccelerator:
 
     Notes
     -----
-    See `Wikipedia`_ for details. 
-    
+    See `Wikipedia`_ for details.
+
     .. _Wikipedia: https://en.wikipedia.org/wiki/Aitken%27s_delta-squared_process
 
     """
@@ -403,7 +403,7 @@ class SolverBase(ABC):
         sol_guess: cp.ndarray | None = None,
     ) -> tuple[cp.ndarray, list]:
         """Map a temperature change to a Wigner distribution ``n``.
-        
+
         Subclasses must implement this method.
         """
 
@@ -414,7 +414,7 @@ class SolverBase(ABC):
         ----------
         dT, dT_new : complex
             The previous and current temperature changes dT.
-        
+
         Returns
         -------
         bool
@@ -1360,7 +1360,7 @@ def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:
     """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
     It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
-     
+
     .. _Phys. Rev. X 12, 041011: https://doi.org/10.1103/PhysRevX.12.041011
 
     Parameters
@@ -1387,7 +1387,7 @@ def _flux_from_n(n, velocity_operator, phonon_freq, volume):
     """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
     It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
-     
+
     .. _Phys. Rev. X 12, 041011: https://doi.org/10.1103/PhysRevX.12.041011
 
     Parameters

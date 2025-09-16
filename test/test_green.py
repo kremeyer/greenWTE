@@ -181,13 +181,14 @@ def test_green_vs_iterative_solver_gradient(material_path):
     cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, atol=2e-7, rtol=2e-7)
     cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], atol=2e-7, rtol=2e-7)
 
+
 @pytest.mark.parametrize("outer_solver", ["root", "aitken", "plain"])
 @pytest.mark.parametrize("material_path", [SI_INPUT_PATH, CSPBBR3_INPUT_PATH])
 def test_green_vs_iterative_energy(outer_solver, material_path):
     """Test the Green's operator against an iterative solver and ensure that the Wigner distribution functions match."""
     conv_thr_rel = 1e-4
     conv_thr_abs = 0
-    
+
     material = Material.from_phono3py(
         material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
     )

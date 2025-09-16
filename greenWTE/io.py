@@ -82,7 +82,7 @@ def _find_or_append_1d(dset, value, atol=0.0):
 
 def _find_index_1d(dset, value, atol=0.0):
     """Find the index of ``value`` in a 1-D dataset.
-    
+
     Parameters
     ----------
     dset : h5py.Dataset
@@ -493,13 +493,13 @@ class GreenContainer:
 
     def omegas(self, k=None):
         r"""Return all stored :math:`\omega` values.
-        
+
         Parameters
         ----------
         k : float, optional
             If provided, return only the frequencies for which **any** q-block exists at this ``k`` (according to the
             mask).
-        
+
         Returns
         -------
         numpy.ndarray
@@ -515,7 +515,7 @@ class GreenContainer:
 
     def ks(self, w=None):
         r"""Return all stored :math:`k` values.
-        
+
         Parameters
         ----------
         w : float, optional
@@ -538,7 +538,7 @@ class GreenContainer:
 
 def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
     r"""Load data from a phono3py-generated HDF5 file.
-    
+
     Parameters
     ----------
     filename : str or os.PathLike
@@ -556,16 +556,20 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
 
     Returns
     -------
-    tuple
-        A tuple ``(qpoint, velocity_operator, phonon_freq, linewidth, heat_capacity, volume, weight)`` where:
-        - ``qpoint`` is a :class:`cupy.ndarray` of shape ``(nq, 3)`` with the q-point coordinates.
-        - ``velocity_operator`` is a :class:`cupy.ndarray` of shape ``(nq, nat3, nat3)`` with the velocity operator in
-          m/s.
-        - ``phonon_freq`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with phonon frequencies in rad/s.
-        - ``linewidth`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with phonon linewidths (FWHM) in rad/s.
-        - ``heat_capacity`` is a :class:`cupy.ndarray` of shape ``(nq, nat3)`` with mode heat capacities in J/(K m^3).
-        - ``volume`` is a scalar :class:`cupy.ndarray` with the unit cell volume in m^3.
-        - ``weight`` is a :class:`cupy.ndarray` of shape ``(nq,)`` with the normalized q-point weights.
+    qpoint : cupy.ndarray
+        q-points of, shape ``(nq, 3)``.
+    velocity_operator : cupy.ndarray
+        Velocity operator in m/s, shape ``(nq, nat3, nat3)``.
+    phonon_freq : cupy.ndarray
+        Phonon frequencies in rad/s, shape ``(nq, nat3)``.
+    linewidth : cupy.ndarray
+        Linewidths of each mode in rad/s, shape ``(nq, nat3)``.
+    heat_capacity : cupy.ndarray
+        Heat capacity of each mode in J/m^3/K, shape ``(nq, nat3)``.
+    volume : float
+        Volume of the system in m^3.
+    weight : cupy.ndarray
+        Normalized q-point weights, shape ``(nq,)``.
 
     Raises
     ------
@@ -636,13 +640,13 @@ def save_solver_result(filename, solver, **kwargs):
     - ``dT_init``: initial guess ``(Nw,)``.
     - ``n``: Wigner distribution ``(Nw, nq, m)`` or similar aggregate.
     - ``niter``: number of outer iterations per frequency.
-    - ``iter_time``: wall-clock time per frequency [s].
+    - ``iter_time``: wall-clock time per frequency in seconds.
     - ``gmres_residual``: GMRES residual history (ragged) concatenated.
     - ``dT_iterates``: stored iterates of ``dT`` (stacked).
     - ``n_norms``: norms of ``n`` per outer iteration.
     - ``source``: source term used in the solve.
-    - ``omega``: angular frequencies [rad/s].
-    - ``k``: wavevector magnitudes [rad/m].
+    - ``omega``: angular frequencies in rad/s.
+    - ``k``: wavevector magnitudes in rad/m.
 
     In addition, command-line arguments found in ``solver.command_line_args`` are
     persisted as datasets if present.

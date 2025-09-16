@@ -55,7 +55,7 @@ class RTAWignerOperator:
 
     def __getitem__(self, iq):
         """Return a single-q-point operator block.
-        
+
         Parameters
         ----------
         iq : int
@@ -210,7 +210,7 @@ class RTAGreenOperator(GreenOperatorBase):
     ----------
     wigner_operator : :py:class:`~greenWTE.green.RTAWignerOperator`
         Wigner operator to be inverted to obtain the Green's operator.
-    
+
     Attributes
     ----------
     omg_ft : float
@@ -271,7 +271,7 @@ class DiskGreenOperator(GreenOperatorBase):
 
     Loads a single slab ``(nq, m, m)`` for the requested :math:`\omega` and :math:`k` into GPU memory on demand,
     allowing the solver to operate without recomputing or storing all Green operators simultaneously.
-    
+
     Parameters
     ----------
     container : :py:class:`~greenWTE.io.GreenContainer`
@@ -289,7 +289,7 @@ class DiskGreenOperator(GreenOperatorBase):
     ----------
     material : :py:class:`~greenWTE.base.Material`
         Material associated with the Green's operator.
-    nq : int    
+    nq : int
         Number of q-points.
     nat3 : int
         Number of phonon modes (3 times the number of atoms in the unit cell).
@@ -323,12 +323,12 @@ class DiskGreenOperator(GreenOperatorBase):
 
     def compute(self, recompute=False):
         """Load the Green's operator from disk.
-        
+
         Parameters
         ----------
         recompute : bool, optional
             If ``False`` and the data is already present, do nothing. If ``True``, reload from disk.
-        
+
         """
         if self._green is not None and not recompute:
             return

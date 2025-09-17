@@ -179,7 +179,7 @@ if __name__ == "__main__":  # pragma: no branch
             mat.volume,
         )
         source_type_for_solver = "gradient"
-    elif args.source_type == "anticommutator":
+    elif args.source_type == "anticommutator":  # pragma: no branch
         source = sources.source_term_anticommutator(
             args.spatial_frequency,
             mat.velocity_operator,
@@ -189,8 +189,6 @@ if __name__ == "__main__":  # pragma: no branch
             mat.volume,
         )
         source_type_for_solver = "gradient"
-    else:
-        raise ValueError(f"Unknown source term structure: {args.source_type}")
 
     try:
         green_container = GreenContainer(path=args.green, dtype=dtypec, read_only=True)

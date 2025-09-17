@@ -15,7 +15,6 @@ dependencies = [
   "h5py",
   "bitshuffle",
   "nvtx",
-  "tqdm",
 ]
 
 [project.optional-dependencies]

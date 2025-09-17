@@ -482,17 +482,22 @@ class GreenWTESolver(SolverBase):
             self.n_norms_list.append(ret[7])
             self.gmres_residual_list.append(ret[8])
 
-            # check self-consistency by checking norm(n(dT) - n)
-            last_n = ret[3]
-            theoretical_next_n, _ = self._dT_to_N(
-                dT=ret[1],
-                omg_ft=omg_ft,
-                omg_idx=i,
-                sol_guess=None,
-            )
-            n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
-            theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
-            self.n_norms_list[i].append(n_step_norm)
+            if self.outer_solver != "none":
+                # check self-consistency by checking norm(n(dT) - n)
+                last_n = ret[3]
+                theoretical_next_n, _ = self._dT_to_N(
+                    dT=ret[1],
+                    omg_ft=omg_ft,
+                    omg_idx=i,
+                    sol_guess=None,
+                )
+                n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
+                theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
+                self.n_norms_list[i].append(n_step_norm)
+            else:
+                n_step_norm = 0
+                theoretical_next_dT = 0
+                self.n_norms_list[i].append(cp.nan)
 
             if self.print_progress:
                 if self.verbose:

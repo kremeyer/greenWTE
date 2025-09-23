@@ -887,10 +887,12 @@ class SolverBase(ABC):
         if not self.iter_time_list:
             raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
-        self._flux = cp.zeros_like(self.n, dtype=self.material.dtypec)
+        # at this point all the heavy lifting was done by the GPU
+        # we calculate the flux on the CPU to save GPU memory
+        self._flux = np.zeros(self.n.shape, dtype=self.material.dtypec)
         for i, _ in enumerate(self.omg_ft_array):
             n = self.n[i]
-            self._flux[i] = flux_from_n(n, self.material)
+            self._flux[i] = flux_from_n(n, self.material).get()
         return self._flux
 
     @property
@@ -910,7 +912,7 @@ class SolverBase(ABC):
         if not self.iter_time_list:
             raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
-        num = cp.einsum("wqij->w", self.flux)
+        num = np.einsum("wqij->w", self.flux)
         den = 1j * self.k_ft * self.dT
         self._kappa = _safe_divide(num, den)
         return self._kappa
@@ -932,7 +934,7 @@ class SolverBase(ABC):
         if not self.iter_time_list:
             raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
-        flux_diag = cp.einsum("wqii->w", self.flux)
+        flux_diag = np.einsum("wqii->w", self.flux)
         den = 1j * self.k_ft * self.dT
         self._kappa_p = _safe_divide(flux_diag, den)
         return self._kappa_p
@@ -954,8 +956,8 @@ class SolverBase(ABC):
         if not self.iter_time_list:
             raise RuntimeError("Solver has not been run yet. Please run the solver first.")
 
-        flux_total = cp.einsum("wqij->w", self.flux)
-        flux_diag = cp.einsum("wqii->w", self.flux)
+        flux_total = np.einsum("wqij->w", self.flux)
+        flux_diag = np.einsum("wqii->w", self.flux)
         flux_offdiag = flux_total - flux_diag
         den = 1j * self.k_ft * self.dT
         self._kappa_c = _safe_divide(flux_offdiag, den)
@@ -978,17 +980,26 @@ def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.nd
         The elementwise division result.
 
     """
-    num = cp.asarray(num)
-    den = cp.asarray(den)
+    if isinstance(num, cp.ndarray) and isinstance(den, cp.ndarray):
+        xp = cp
+    else:
+        if isinstance(num, cp.ndarray):
+            num = num.get()
+        if isinstance(den, cp.ndarray):
+            den = den.get()
+        xp = np
 
-    out_shape = cp.broadcast(num, den).shape
-    num_b = cp.broadcast_to(num, out_shape)
-    den_b = cp.broadcast_to(den, out_shape)
+    num = xp.asarray(num)
+    den = xp.asarray(den)
 
-    out_dtype = cp.result_type(num_b, den_b)
+    out_shape = xp.broadcast(num, den).shape
+    num_b = xp.broadcast_to(num, out_shape)
+    den_b = xp.broadcast_to(den, out_shape)
 
-    mask = cp.abs(den_b) > eps
-    out = cp.zeros(out_shape, dtype=out_dtype)
+    out_dtype = xp.result_type(num_b, den_b)
+
+    mask = xp.abs(den_b) > eps
+    out = xp.zeros(out_shape, dtype=out_dtype)
     out[mask] = num_b[mask] / den_b[mask]
 
     return out

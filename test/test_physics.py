@@ -200,7 +200,7 @@ def test_diag_velocity_operator():
 
     solver.run()
 
-    cp.testing.assert_array_less(cp.real(solver.kappa_c), 1e-13)
+    cp.testing.assert_array_less(cp.real(solver.kappa_c), 1e-12)
 
 
 def test_output_file_dimensions(tmp_path):

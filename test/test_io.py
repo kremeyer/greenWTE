@@ -390,9 +390,9 @@ def test_save_solver_result_branches(tmp_path):
         material = Material()
         outer_solver = "root"
         inner_solver = "gmres"
-        kappa = Mat([9.0])
-        kappa_p = Mat([10.0])
-        kappa_c = Mat([11.0])
+        kappa = np.array([9.0])
+        kappa_p = np.array([10.0])
+        kappa_c = np.array([11.0])
         command_line_args = Args(extra_cp=cp_like, extra_py=42)
 
     io_mod.save_solver_result(str(p), Solver(), kw_cp=cp_like, kw_plain=99, kw_list=(9, 10))

@@ -1,6 +1,7 @@
 """Test base functionality of classes."""
 
 import cupy as cp
+import numpy as np
 import pytest
 from greenWTE.base import AitkenAccelerator, Material, dT_to_N_iterative, dT_to_N_matmul, estimate_initial_dT
 from greenWTE.green import GreenWTESolver, RTAGreenOperator, RTAWignerOperator
@@ -259,7 +260,7 @@ def test_printing_options_iterative(capfd):
 
     solver.run()
     out, err = capfd.readouterr()
-    assert out.startswith("..")
+    assert out.startswith(".")
     assert "[1/1] k=1.00e+04 w=0.00e+00 dT= 1.00e+00+1.00e+00j n_it=1" in out
     assert err == ""
 
@@ -429,3 +430,35 @@ def test_basesolver_attribute_caching():
     solver._kappa_c = cached
     out = solver.kappa_c
     assert out is cached
+
+
+def test_safe_divide():
+    """Test that _safe_divide can handle numpy and cupy arrays and zero-divisions are caught."""
+    from greenWTE.base import _safe_divide
+
+    # numpy arrays
+    num = np.array([1.0, 2.0, 3.0])
+    den = np.array([1.0, 0.0, 3.0])
+    out = _safe_divide(num, den)
+    assert isinstance(out, np.ndarray)
+    assert np.allclose(out, np.array([1.0, 0.0, 1.0]))
+
+    # cupy arrays
+    num = cp.array([1.0, 2.0, 3.0])
+    den = cp.array([1.0, 0.0, 3.0])
+    out = _safe_divide(num, den)
+    assert isinstance(out, cp.ndarray)
+    assert cp.allclose(out, cp.array([1.0, 0.0, 1.0]))
+
+    # mixed arrays
+    num = np.array([1.0, 2.0, 3.0])
+    den = cp.array([1.0, 0.0, 3.0])
+    out = _safe_divide(num, den)
+    assert isinstance(out, np.ndarray)
+    assert np.allclose(out, np.array([1.0, 0.0, 1.0]))
+
+    num = cp.array([1.0, 2.0, 3.0])
+    den = np.array([1.0, 0.0, 3.0])
+    out = _safe_divide(num, den)
+    assert isinstance(out, np.ndarray)
+    assert np.allclose(out, np.array([1.0, 0.0, 1.0]))

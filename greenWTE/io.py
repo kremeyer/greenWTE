@@ -673,9 +673,9 @@ def save_solver_result(filename, solver, **kwargs):
         h5f.create_dataset("outer_solver", data=solver.outer_solver)
         h5f.create_dataset("inner_solver", data=solver.inner_solver)
 
-        h5f.create_dataset("kappa", data=solver.kappa.get())
-        h5f.create_dataset("kappa_P", data=solver.kappa_p.get())
-        h5f.create_dataset("kappa_C", data=solver.kappa_c.get())
+        h5f.create_dataset("kappa", data=solver.kappa)
+        h5f.create_dataset("kappa_P", data=solver.kappa_p)
+        h5f.create_dataset("kappa_C", data=solver.kappa_c)
 
         for key, value in vars(solver.command_line_args).items():
             if key in h5f:

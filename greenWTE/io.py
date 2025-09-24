@@ -654,28 +654,38 @@ def save_solver_result(filename, solver, **kwargs):
     """
     with h5py.File(filename, "w") as h5f:
         h5f.create_dataset("dT", data=solver.dT.get())
+        h5f["dT"].attrs["units"] = "Kelvin"
         h5f.create_dataset("dT_init", data=solver.dT_init.get())
+        h5f["dT_init"].attrs["units"] = "Kelvin"
         h5f.create_dataset("n", data=solver.n.get())
         h5f.create_dataset("niter", data=solver.niter.get())
         h5f.create_dataset("iter_time", data=solver.iter_time.get())
+        h5f["iter_time"].attrs["units"] = "seconds"
         h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())
         h5f.create_dataset("dT_iterates", data=solver.dT_iterates.get())
+        h5f["dT_iterates"].attrs["units"] = "Kelvin"
         h5f.create_dataset("n_norms", data=solver.n_norms.get())
         h5f.create_dataset("source", data=solver.source.get())
 
         h5f.create_dataset("omega", data=solver.omg_ft_array.get())
+        h5f["omega"].attrs["units"] = "radians/second"
         h5f.create_dataset("k", data=solver.k_ft)
+        h5f["k"].attrs["units"] = "radians/meter"
         h5f.create_dataset("max_iter", data=solver.max_iter)
         h5f.create_dataset("conv_thr_rel", data=solver.conv_thr_rel)
         h5f.create_dataset("conv_thr_abs", data=solver.conv_thr_abs)
+        h5f["conv_thr_abs"].attrs["units"] = "Kelvin"
         h5f.create_dataset("dtype_real", data=str(solver.material.dtyper))
         h5f.create_dataset("dtype_complex", data=str(solver.material.dtypec))
         h5f.create_dataset("outer_solver", data=solver.outer_solver)
         h5f.create_dataset("inner_solver", data=solver.inner_solver)
 
         h5f.create_dataset("kappa", data=solver.kappa)
+        h5f["kappa"].attrs["units"] = "Watts/meter/Kelvin"
         h5f.create_dataset("kappa_P", data=solver.kappa_p)
+        h5f["kappa_P"].attrs["units"] = "Watts/meter/Kelvin"
         h5f.create_dataset("kappa_C", data=solver.kappa_c)
+        h5f["kappa_C"].attrs["units"] = "Watts/meter/Kelvin"
 
         for key, value in vars(solver.command_line_args).items():
             if key in h5f:

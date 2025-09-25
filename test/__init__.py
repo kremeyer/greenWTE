@@ -23,6 +23,7 @@ ASSETS = {
         [
             "https://kremeyer.eu/Si-kappa-m555.hdf5",
             "https://www.physics.mcgill.ca/~laurenzk/Si-kappa-m555.hdf5",
+            "https://nextcloud.computecanada.ca/index.php/s/aMijNxDREjxyQYH/download/Si-kappa-m555.hdf5",
         ],
     ),
     # The second and third order IFCs used to calculate the material properties for CsPbBr3 with phono3py are taken
@@ -34,6 +35,7 @@ ASSETS = {
         [
             "https://kremeyer.eu/CsPbBr3-kappa-m443.hdf5",
             "https://www.physics.mcgill.ca/~laurenzk/CsPbBr3-kappa-m443.hdf5",
+            "https://nextcloud.computecanada.ca/index.php/s/JbMKp8c8ga655gw/download/CsPbBr3-kappa-m443.hdf5",
         ],
     ),
 }

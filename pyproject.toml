@@ -14,7 +14,6 @@ dependencies = [
   "scipy~=1.11",
   "h5py",
   "bitshuffle",
-  "nvtx",
 ]
 
 [project.optional-dependencies]

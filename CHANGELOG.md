@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Files required for testing are now hosted externally and automatically downloaded when running tests.
 
+### Changed
+
+- NVTX is not longer required. A shim to nvtx.annotate was added that mirrors the signature and does nothing.
+
 # [0.2.2] - 2025-09-24
 
 ### Added

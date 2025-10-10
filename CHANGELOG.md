@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-# [0.2.3] - 2025
+# [0.3.0] - 2025 - 2025-10-10
 
 ### Added
 
@@ -10,7 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- NVTX is not longer required. A shim to nvtx.annotate was added that mirrors the signature and does nothing.
+- dependencies: NVTX is not longer required. A shim to nvtx.annotate was added that mirrors the original signature and does nothing.
+- postprocessing: Do tessellation once when interpolating quantity onto a path in the BZ
+- tests: Moved tests into greenWTE package, so it's shipped when users install via pip
 
 # [0.2.2] - 2025-09-24
 

@@ -5,6 +5,7 @@ from argparse import Namespace
 
 import cupy as cp
 
+from . import nvtx_utils
 from .base import Material, N_to_dT, SolverBase, dT_to_N_matmul
 from .io import GreenContainer
 
@@ -93,36 +94,37 @@ class RTAWignerOperator:
         if self._op is not None and not recompute:
             return
 
-        self._op = cp.zeros((self.nq, self.nat3**2, self.nat3**2), dtype=self.dtypec)
-        I_small = cp.eye(self.nat3, dtype=self.dtyper)
-        I_big = cp.eye(self.nat3**2, dtype=self.dtypec)
-        OMG = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
-        GAM = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
+        with nvtx_utils.annotate("build WignerOperator", color="orange"):
+            self._op = cp.zeros((self.nq, self.nat3**2, self.nat3**2), dtype=self.dtypec)
+            I_small = cp.eye(self.nat3, dtype=self.dtyper)
+            I_big = cp.eye(self.nat3**2, dtype=self.dtypec)
+            OMG = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
+            GAM = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
 
-        for ii in range(self.nq):
-            cp.fill_diagonal(OMG, self.material.phonon_freq[ii])
-            cp.fill_diagonal(GAM, self.material.linewidth[ii])
+            for ii in range(self.nq):
+                cp.fill_diagonal(OMG, self.material.phonon_freq[ii])
+                cp.fill_diagonal(GAM, self.material.linewidth[ii])
 
-            gv_op = self.material.velocity_operator[ii]
+                gv_op = self.material.velocity_operator[ii]
 
-            # term1 = cp.kron(I_small, OMG) - cp.kron(OMG, I_small) - (omg_ft * I_big)
-            term1 = (
-                cp.einsum("ij,kl->ikjl", I_small, OMG).reshape(self.nat3**2, self.nat3**2)
-                - cp.einsum("ij,kl->ikjl", OMG, I_small).reshape(self.nat3**2, self.nat3**2)
-                - self.omg_ft * I_big
-            )
-            # term2 = (k_ft / 2) * (cp.kron(I_small, gv_op) + cp.kron(gv_op.T, I_small))
-            term2 = (self.k_ft / 2) * (
-                cp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(self.nat3**2, self.nat3**2)
-                + cp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(self.nat3**2, self.nat3**2)
-            )
-            # term3 = 0.5 * (cp.kron(I_small, GAM) + cp.kron(GAM, I_small))
-            term3 = 0.5 * (
-                cp.einsum("ij,kl->ikjl", I_small, GAM).reshape(self.nat3**2, self.nat3**2)
-                + cp.einsum("ij,kl->ikjl", GAM, I_small).reshape(self.nat3**2, self.nat3**2)
-            )
+                # term1 = cp.kron(I_small, OMG) - cp.kron(OMG, I_small) - (omg_ft * I_big)
+                term1 = (
+                    cp.einsum("ij,kl->ikjl", I_small, OMG).reshape(self.nat3**2, self.nat3**2)
+                    - cp.einsum("ij,kl->ikjl", OMG, I_small).reshape(self.nat3**2, self.nat3**2)
+                    - self.omg_ft * I_big
+                )
+                # term2 = (k_ft / 2) * (cp.kron(I_small, gv_op) + cp.kron(gv_op.T, I_small))
+                term2 = (self.k_ft / 2) * (
+                    cp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(self.nat3**2, self.nat3**2)
+                    + cp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(self.nat3**2, self.nat3**2)
+                )
+                # term3 = 0.5 * (cp.kron(I_small, GAM) + cp.kron(GAM, I_small))
+                term3 = 0.5 * (
+                    cp.einsum("ij,kl->ikjl", I_small, GAM).reshape(self.nat3**2, self.nat3**2)
+                    + cp.einsum("ij,kl->ikjl", GAM, I_small).reshape(self.nat3**2, self.nat3**2)
+                )
 
-            self._op[ii] = (1j * (term1 - term2)) + term3
+                self._op[ii] = (1j * (term1 - term2)) + term3
 
 
 class GreenOperatorBase(ABC):
@@ -260,7 +262,8 @@ class RTAGreenOperator(GreenOperatorBase):
 
         self._green = cp.zeros_like(self.wigner_operator._op, dtype=self.dtypec)
 
-        self._green = cp.linalg.inv(self.wigner_operator._op)
+        with nvtx_utils.annotate("invert WignerOperator", color="red"):
+            self._green = cp.linalg.inv(self.wigner_operator._op)
 
         if clear_wigner:
             self.wigner_operator._op = None

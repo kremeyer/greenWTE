@@ -484,3 +484,10 @@ TSWLatexianTemp*
 
 # PDF
 *.pdf
+
+# test assets
+*.hdf5
+*.h5
+
+# generated docs
+doc/generated/*

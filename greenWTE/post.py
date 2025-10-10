@@ -154,13 +154,10 @@ def interpolate_onto_path(qpath, qmesh, data, n=1000, smooth=False, smooth_kwarg
         qpath_interp.append(seg)
     qpath_interp = np.vstack(qpath_interp)
 
-    interp_data = np.zeros((len(qpath_interp), data.shape[1]), dtype=data.dtype)
-    for i in range(data.shape[1]):
-        interp_func = LinearNDInterpolator(qmesh, data[:, i], fill_value=np.NaN)
-        interp_data[:, i] = interp_func(qpath_interp)
+    interpolator = LinearNDInterpolator(qmesh, data, fill_value=np.NaN)
+    interp_data = interpolator(qpath_interp)
 
     if smooth:
-        for i in range(interp_data.shape[1]):
-            interp_data[:, i] = savgol_filter(interp_data[:, i], **smooth_kwargs)
+        interp_data = savgol_filter(interp_data, axis=0, **smooth_kwargs)
 
     return qpath_interp, interp_data, qpath_idxs

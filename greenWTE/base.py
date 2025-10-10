@@ -7,11 +7,12 @@ from argparse import Namespace
 
 import cupy as cp
 import numpy as np
-import nvtx
 from cupyx.scipy.interpolate import PchipInterpolator
 from cupyx.scipy.sparse.linalg import gmres
 from scipy.constants import hbar
 from scipy.optimize import root
+
+from . import nvtx_utils
 
 
 class Material:
@@ -1212,7 +1213,7 @@ def _dT_to_N_iterative(
         A list of residuals for each iteration of the solver.
 
     """
-    with nvtx.annotate("init dT_to_N", color="blue"):
+    with nvtx_utils.annotate("init dT_to_N", color="blue"):
         nq = phonon_freq.shape[0]
         nat3 = phonon_freq.shape[1]
         n = cp.zeros((nq, nat3, nat3), dtype=dtypec)
@@ -1225,7 +1226,7 @@ def _dT_to_N_iterative(
         outer_residuals = []
 
     for ii in range(nq):
-        with nvtx.annotate("init q", color="purple"):
+        with nvtx_utils.annotate("init q", color="purple"):
             cp.fill_diagonal(OMG, phonon_freq[ii])
             cp.fill_diagonal(GAM, linewidth[ii])
 
@@ -1266,7 +1267,7 @@ def _dT_to_N_iterative(
                 residuals.append(residual)
 
         if solver == "gmres":
-            with nvtx.annotate("gmres", color="green"):
+            with nvtx_utils.annotate("gmres", color="green"):
                 guess = sol_guess[ii].flatten(order="F") if sol_guess is not None else cp.zeros_like(rhs, dtype=dtypec)
                 sol, info = gmres(
                     lhs,
@@ -1349,24 +1350,25 @@ def dT_to_N_matmul(
     matrix multiplication for improved performance on the GPU.
 
     """
-    nq, nat3 = material.nq, material.nat3
-    m = nat3**2
+    with nvtx_utils.annotate("dT_to_N_matmul", color="orange"):
+        nq, nat3 = material.nq, material.nat3
+        m = nat3**2
 
-    green = cp.asarray(green)
-    green = cp.ascontiguousarray(green).reshape(nq, m, m)
-    if source_type == "energy":
-        rhs = cp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
-    elif source_type == "gradient":
-        rhs = (cp.array(dT, dtype=material.dtypec) * cp.ascontiguousarray(source).reshape(nq, nat3, nat3)).copy()
-    else:
-        raise ValueError(f"Unknown source type: {source_type}")
-    prefac = material.volume * nq / hbar * material.heat_capacity / material.phonon_freq * dT
+        green = cp.asarray(green)
+        green = cp.ascontiguousarray(green).reshape(nq, m, m)
+        if source_type == "energy":
+            rhs = cp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
+        elif source_type == "gradient":
+            rhs = (cp.array(dT, dtype=material.dtypec) * cp.ascontiguousarray(source).reshape(nq, nat3, nat3)).copy()
+        else:
+            raise ValueError(f"Unknown source type: {source_type}")
+        prefac = material.volume * nq / hbar * material.heat_capacity / material.phonon_freq * dT
 
-    i = cp.arange(nat3)
-    rhs[:, i, i] += material.linewidth * prefac
+        i = cp.arange(nat3)
+        rhs[:, i, i] += material.linewidth * prefac
 
-    rhs_flat = rhs.reshape(nq, m, order="F")
-    n_flat = (green @ rhs_flat[..., None]).squeeze(-1)
+        rhs_flat = rhs.reshape(nq, m, order="F")
+        n_flat = (green @ rhs_flat[..., None]).squeeze(-1)
 
     return n_flat.reshape(nq, nat3, nat3, order="F")
 

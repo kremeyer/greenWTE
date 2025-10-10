@@ -11,9 +11,9 @@ repos:
     rev: v0.12.7
     hooks:
       - id: ruff-check
-        args: ["greenWTE", "test"]
+        args: ["greenWTE"]
       - id: ruff-format
-        args: ["greenWTE", "test"]
+        args: ["greenWTE"]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1

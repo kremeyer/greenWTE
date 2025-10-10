@@ -24,28 +24,8 @@ from .io import save_solver_result
 from .iterative import IterativeWTESolver
 
 
-def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
-    r"""Parse and validate command-line arguments for the Green-operator WTE solver.
-
-    The ``omega_range`` accepts either a **single** number (interpreted as a base-10 exponent) or **three** numbers
-    ``start stop num`` meaning ``np.logspace(start, stop, num)``.
-
-    Parameters
-    ----------
-    argv : Iterable[str] or None, optional
-        CLI arguments to parse (defaults to ``sys.argv[1:]`` when ``None``).
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments.
-
-    Raises
-    ------
-    ValueError
-        If ``omega_range`` options are not specified as either 1 value or 3 values.
-
-    """
+def get_parser() -> ArgumentParser:
+    """Get the argument parser for the CLI."""
     parser = ArgumentParser(description="greenWTE iterative solver")
 
     parser.add_argument("input", type=str, help="HDF5 input file from phono3py")
@@ -107,6 +87,32 @@ def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
         "--dry-run", action="store_true", help="initialize solver but do not run the calculation; for testing purposes"
     )
 
+    return parser
+
+
+def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
+    r"""Parse and validate command-line arguments for the Green-operator WTE solver.
+
+    The ``omega_range`` accepts either a **single** number (interpreted as a base-10 exponent) or **three** numbers
+    ``start stop num`` meaning ``np.logspace(start, stop, num)``.
+
+    Parameters
+    ----------
+    argv : Iterable[str] or None, optional
+        CLI arguments to parse (defaults to ``sys.argv[1:]`` when ``None``).
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments.
+
+    Raises
+    ------
+    ValueError
+        If ``omega_range`` options are not specified as either 1 value or 3 values.
+
+    """
+    parser = get_parser()
     a = parser.parse_args()
 
     if len(a.omega_range) == 1:

@@ -6,6 +6,7 @@ from os.path import join as pj
 import cupy as cp
 import h5py
 import pytest
+
 from greenWTE.base import Material
 from greenWTE.io import save_solver_result
 from greenWTE.iterative import IterativeWTESolver

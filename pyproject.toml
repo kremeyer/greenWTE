@@ -39,7 +39,7 @@ serve = "python -m http.server -d doc/_build/html"
 
 [tool.ruff]
 line-length = 120
-src = ["greenWTE", "test"]
+src = ["greenWTE"]
 
 [tool.ruff.lint]
 select = [
@@ -62,8 +62,8 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["test"]
-addopts = "--cov=greenWTE --cov-report=term-missing --cov-report=html"
+testpaths = ["greenWTE/tests"]
+addopts = "--cov=greenWTE --cov-report=term-missing"
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
   "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",

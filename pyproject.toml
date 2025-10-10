@@ -31,10 +31,10 @@ default-args = ["test"]
 python = ["3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.docs]
-dependencies = ["sphinx", "sphinx-rtd-theme", "cupy-cuda12x>=12.0"]
+dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "cupy-cuda12x>=12.0", "matplotlib"]
 
 [tool.hatch.envs.docs.scripts]
-build = "cd doc && make clean && make html"
+build = "cd doc && make clean && make doctest && make html"
 serve = "python -m http.server -d doc/_build/html"
 
 [tool.ruff]
@@ -74,7 +74,7 @@ filterwarnings = [
 [tool.coverage.run]
 branch = true
 source = ["greenWTE"]
-omit = ["greenWTE/post.py"]
+omit = ["greenWTE/post.py", "greenWTE/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

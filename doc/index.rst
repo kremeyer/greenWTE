@@ -17,4 +17,7 @@ Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in So
     :maxdepth: 1
 
     self
+    installation
+    tutorials
+    cli-arguments
     api

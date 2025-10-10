@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 import cupy as cp
+
 from greenWTE.base import N_to_dT
 
 ASSETS = {

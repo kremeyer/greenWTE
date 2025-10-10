@@ -3,6 +3,7 @@
 import cupy as cp
 import numpy as np
 import pytest
+
 from greenWTE.base import AitkenAccelerator, Material, dT_to_N_iterative, dT_to_N_matmul, estimate_initial_dT
 from greenWTE.green import GreenWTESolver, RTAGreenOperator, RTAWignerOperator
 from greenWTE.iterative import IterativeWTESolver

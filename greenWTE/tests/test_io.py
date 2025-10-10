@@ -5,10 +5,11 @@ import json
 from os.path import join as pj
 
 import cupy as cp
-import greenWTE.io as io_mod
 import h5py
 import numpy as np
 import pytest
+
+import greenWTE.io as io_mod
 from greenWTE.base import Material
 from greenWTE.green import RTAGreenOperator, RTAWignerOperator
 from greenWTE.io import GreenContainer

@@ -31,6 +31,6 @@ To run the tests we clone the repository and set up a virtual environment.
 After that we install the dependencies and run the tests::
 
     python3 -m pytest --pyargs greenWTE
-    
+
 When running the tests for the first time, some test data will be downloaded into the `test` folder.
 They contain material properties that will also be used in the examples.

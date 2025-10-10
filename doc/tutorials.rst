@@ -110,7 +110,7 @@ To compute the same result using the scripted interface we can use the following
     from greenWTE.iterative import IterativeWTESolver
     from greenWTE.sources import source_term_gradT
     from greenWTE.tests.defaults import SI_INPUT_PATH
-   
+
     K_FT = 10 ** 2.5  # spatial frequency in rad/m
     material = Material.from_phono3py(SI_INPUT_PATH, temperature=300)
     source = source_term_gradT(
@@ -130,9 +130,9 @@ To compute the same result using the scripted interface we can use the following
         outer_solver="none",
     )
     solver.run()
-   
+
     print(f"{solver.kappa[0]:.1f}, {solver.kappa_p[0]:.1f}, {solver.kappa_c[0]:.1f}")
-    
+
 And as expected we get the same result of 63 W/m/K:
 
 .. testoutput::

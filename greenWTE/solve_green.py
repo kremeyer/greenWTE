@@ -79,7 +79,7 @@ def get_parser() -> ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="initialize solver but do not run the calculation; for testing purposes"
     )
-    
+
     return parser
 
 

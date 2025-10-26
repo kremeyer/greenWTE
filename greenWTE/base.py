@@ -5,6 +5,12 @@ import warnings
 from abc import ABC, abstractmethod
 from argparse import Namespace
 
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+from typing import Sequence
+
 import cupy as cp
 import numpy as np
 from cupyx.scipy.interpolate import PchipInterpolator
@@ -62,15 +68,15 @@ class Material:
 
     def __init__(
         self,
-        temperature,
-        velocity_operator,
-        phonon_freq,
-        linewidth,
-        heat_capacity,
-        volume,
-        qpoint=None,
-        name=None,
-    ):
+        temperature: float,
+        velocity_operator: cp.ndarray,
+        phonon_freq: cp.ndarray,
+        linewidth: cp.ndarray,
+        heat_capacity: cp.ndarray,
+        volume: float,
+        qpoint: cp.ndarray | None = None,
+        name: str | None = None,
+    ) -> None:
         """Initialize the Material class with physical properties."""
         self.temperature = temperature
         self.velocity_operator = velocity_operator
@@ -87,8 +93,14 @@ class Material:
 
     @classmethod
     def from_phono3py(
-        cls, filename, temperature, dir_idx=0, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128
-    ):
+        cls: type[Self],
+        filename: str,
+        temperature: float,
+        dir_idx: int = 0,
+        exclude_gamma: bool = True,
+        dtyper: cp.dtype = cp.float64,
+        dtypec: cp.dtype = cp.complex128,
+    ) -> Self:
         """Construct a :py:class:`~greenWTE.base.Material` from a :py:mod:`phono3py` HDF5 output.
 
         Parameters
@@ -135,11 +147,11 @@ class Material:
             name=filename,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return a string representation of the Material."""
         return f"{self.name}@{self.temperature}K with {self.nq} qpoints and {self.nat3} modes"
 
-    def __getitem__(self, iq):
+    def __getitem__(self, iq: int) -> Self:
         """Return a single-q-point :py:class:`~greenWTE.base.Material`.
 
         Parameters
@@ -163,12 +175,12 @@ class Material:
             name=self.name,
         )
 
-    def __iter__(self):
+    def __iter__(self) -> Self:
         """Allow iteration over the Materials q-points."""
         self._iter_index = 0
         return self
 
-    def __next__(self):
+    def __next__(self) -> Self:
         """Return the next q-point in the iteration."""
         if self._iter_index < self.nq:
             result = self[self._iter_index]
@@ -196,15 +208,15 @@ class AitkenAccelerator:
 
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the AitkenAccelerator."""
         self.history = []
 
-    def reset(self):
+    def reset(self) -> None:
         """Clear the AitkenAccelerator history."""
         self.history.clear()
 
-    def update(self, dT_new):
+    def update(self, dT_new: complex) -> complex:
         """Update the AitkenAccelerator with a new temperature change.
 
         Parameters
@@ -231,7 +243,9 @@ class AitkenAccelerator:
         return dT_accel
 
 
-def estimate_initial_dT(omg_ft, history, dtyper=cp.float64, dtypec=cp.complex128):
+def estimate_initial_dT(
+    omg_ft: float, history: Sequence[tuple[float, complex]], dtyper=cp.float64, dtypec=cp.complex128
+) -> complex:
     r"""Estimate the initial guess for :math:`\Delta T(\omega)`.
 
     Try to interpolate the values of :math:`\Delta T(\omega)` from history of previous values. If no history is
@@ -362,7 +376,7 @@ class SolverBase(ABC):
         outer_solver: str = "root",
         command_line_args=Namespace(),
         print_progress: bool = False,
-    ):
+    ) -> None:
         """Initialize SolverBase."""
         self.omg_ft_array = cp.asarray(omg_ft_array)
         self.k_ft = k_ft
@@ -408,7 +422,7 @@ class SolverBase(ABC):
         Subclasses must implement this method.
         """
 
-    def _dT_converged(self, dT, dT_new):
+    def _dT_converged(self, dT: complex, dT_new: complex) -> bool:
         r"""Check whether two successive :math:`\Delta T` iterates meet the thresholds.
 
         Parameters
@@ -428,7 +442,7 @@ class SolverBase(ABC):
         thresh = self.conv_thr_abs + self.conv_thr_rel * scale
         return r_abs <= thresh
 
-    def run(self):
+    def run(self) -> None:
         r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
         The outer iteration chosen by ``outer_solver`` is used to find self-consistent solutions for the temperature
@@ -493,7 +507,9 @@ class SolverBase(ABC):
 
         self._solution_lists_to_arrays()
 
-    def _run_solver_aitken(self, omg_idx, omg_ft):
+    def _run_solver_aitken(
+        self, omg_idx: int, omg_ft: float
+    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using Aitken's delta-squared process for acceleration.
 
         Parameters
@@ -569,7 +585,9 @@ class SolverBase(ABC):
 
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
-    def _run_solver_plain(self, omg_idx, omg_ft):
+    def _run_solver_plain(
+        self, omg_idx: int, omg_ft: float
+    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using simple fixed-point iteration.
 
         Parameters
@@ -645,7 +663,9 @@ class SolverBase(ABC):
 
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
-    def _run_solver_none(self, omg_idx, omg_ft):
+    def _run_solver_none(
+        self, omg_idx: int, omg_ft: float
+    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver without outer iterations, performing a single mapping from dT to n.
 
         Parameters
@@ -708,7 +728,9 @@ class SolverBase(ABC):
 
         return omg_ft, dT, dT, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
-    def _run_solver_root(self, omg_idx, omg_ft):
+    def _run_solver_root(
+        self, omg_idx: int, omg_ft: float
+    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using SciPy's root-finding algorithm :py:mod:scipy.optimize.root`.
 
         Parameters
@@ -757,7 +779,7 @@ class SolverBase(ABC):
         last_eval_n = None
         last_eval_dTnew = None
 
-        def residual_vec(x):
+        def residual_vec(x: np.ndarray) -> np.ndarray:
             # x is np.array([Re(dT), Im(dT)]) on CPU (necessary for scipy)
             nonlocal n, n_old, dT_iterates, gmres_residual, iter_times
             nonlocal last_eval_dT, last_eval_n, last_eval_dTnew
@@ -834,7 +856,7 @@ class SolverBase(ABC):
         niter = len(iter_times)
         return omg_ft, dT, dT_init, n, niter, iter_times, dT_iterates, n_norms, gmres_residual
 
-    def _solution_lists_to_arrays(self):
+    def _solution_lists_to_arrays(self) -> None:
         """Convert the lists of iteration times, dT iterates, n norms, and GMRES residuals into cupy arrays.
 
         We can only do that after all omg_ft have been solved, since the lengths of the lists can vary. All entries in
@@ -874,7 +896,7 @@ class SolverBase(ABC):
         self.gmres_residual = gmres_residual_array
 
     @property
-    def flux(self):
+    def flux(self) -> np.ndarray:
         """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
         Returns
@@ -897,7 +919,7 @@ class SolverBase(ABC):
         return self._flux
 
     @property
-    def kappa(self):
+    def kappa(self) -> np.ndarray:
         r"""Total thermal conductivity :math:`\kappa(\omega)`.
 
         Compute kappa from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
@@ -919,7 +941,7 @@ class SolverBase(ABC):
         return self._kappa
 
     @property
-    def kappa_p(self):
+    def kappa_p(self) -> np.ndarray:
         r"""Ppopulation thermal conductivity :math:`\kappa_\mathrm{P}(\omega)`.
 
         Compute kappa_P from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
@@ -941,7 +963,7 @@ class SolverBase(ABC):
         return self._kappa_p
 
     @property
-    def kappa_c(self):
+    def kappa_c(self) -> np.ndarray:
         r"""Coherence thermal conductivity :math:`\kappa_\mathrm{C}(\omega)`.
 
         Compute kappa_C from the Wigner distribution function :py:attr:`n` and the temperature change :py:attr:`dT`.
@@ -965,7 +987,9 @@ class SolverBase(ABC):
         return self._kappa_c
 
 
-def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.ndarray:
+def _safe_divide(
+    num: cp.ndarray | np.ndarray, den: cp.ndarray | np.ndarray, eps: float = 1e-300
+) -> cp.ndarray | np.ndarray:
     """Element-wise division with broadcasting and protection against zeros.
 
     Parameters
@@ -977,7 +1001,7 @@ def _safe_divide(num: cp.ndarray, den: cp.ndarray, eps: float = 1e-300) -> cp.nd
 
     Returns
     -------
-    cupy.ndarray
+    cupy.ndarray, numpy.ndarray
         The elementwise division result.
 
     """
@@ -1400,7 +1424,7 @@ def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:
     return _flux_from_n(n, material.velocity_operator, material.phonon_freq, material.volume)
 
 
-def _flux_from_n(n, velocity_operator, phonon_freq, volume):
+def _flux_from_n(n: cp.ndarray, velocity_operator: cp.ndarray, phonon_freq: cp.ndarray, volume: float) -> cp.ndarray:
     """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
     It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.

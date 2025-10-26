@@ -3,6 +3,11 @@
 from abc import ABC, abstractmethod
 from argparse import Namespace
 
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
 import cupy as cp
 
 from . import nvtx_utils
@@ -43,7 +48,7 @@ class RTAWignerOperator:
         omg_ft: cp.ndarray,
         k_ft: cp.ndarray,
         material: Material,
-    ):
+    ) -> None:
         """Initialize the factory with the given physical parameters."""
         self.omg_ft = omg_ft
         self.k_ft = k_ft
@@ -54,7 +59,7 @@ class RTAWignerOperator:
         self.dtyper = material.dtyper
         self.dtypec = material.dtypec
 
-    def __getitem__(self, iq):
+    def __getitem__(self, iq: int) -> cp.ndarray:
         """Return a single-q-point operator block.
 
         Parameters
@@ -72,17 +77,17 @@ class RTAWignerOperator:
             raise RuntimeError("Wigner operator not computed yet.")
         return self._op[iq]
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the number of q-points in the Wigner operator."""
         return self.nq
 
-    def __iter__(self):
+    def __iter__(self) -> Self:
         """Allow iteration over the Wigner operators q-points."""
         if self._op is None:
             raise RuntimeError("Wigner operator not computed yet.")
         return iter(self._op)
 
-    def compute(self, recompute=False):
+    def compute(self, recompute: bool = False) -> None:
         """Assemble the Wigner operator blocks on the GPU.
 
         Parameters
@@ -141,63 +146,63 @@ class GreenOperatorBase(ABC):
 
     __array_priority__ = 1000
 
-    def _require_ready(self):
+    def _require_ready(self) -> None:
         """Ensure the Green's operator is computed before accessing it."""
         if self._green is None:
             raise RuntimeError("Green's operator not computed yet.")
 
-    def __getitem__(self, iq):
+    def __getitem__(self, iq: int) -> cp.ndarray:
         """Allow indexing to access the Green's function for a specific q-point."""
         self._require_ready()
         return self._green[iq]
 
-    def __matmul__(self, other):
+    def __matmul__(self, other: cp.ndarray) -> cp.ndarray:
         """Allow matrix multiplication with the Green's function."""
         self._require_ready()
         return self._green @ other
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the number of q-points in the Green's function."""
         self._require_ready()
         return len(self._green)
 
-    def __iter__(self):
+    def __iter__(self) -> Self:
         """Allow iteration over the Green's function q-points."""
         self._require_ready()
         return iter(self._green)
 
     @property
-    def __cuda_array_interface__(self):
+    def __cuda_array_interface__(self) -> dict:
         """Return the CUDA array interface for the Green's function."""
         self._require_ready()
         return self._green.__cuda_array_interface__
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, int, int]:
         """Return the shape of the Green's function."""
         self._require_ready()
         return self._green.shape
 
     @property
-    def dtype(self):
+    def dtype(self) -> cp.dtype:
         """Return the dtype of the Green's function."""
         self._require_ready()
         return self._green.dtype
 
-    def squeeze(self):
+    def squeeze(self) -> cp.ndarray:
         """Return the Green's function with singleton dimensions removed."""
         self._require_ready()
         return self._green.squeeze()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return a string representation of the Green's operator."""
         return f"<RTAGreenOperator: {len(self)} q-points at w={self.omg_ft:.2e} with dtype={self.dtypec}>"
 
     @abstractmethod
-    def compute(self, recompute=False, **kwargs):
+    def compute(self, recompute: bool = False, **kwargs) -> None:
         """Compute or load the Green's function from disk."""
 
-    def free(self):
+    def free(self) -> None:
         """Free the memory used by the Green's operator."""
         if self._green is not None:
             self._green = None
@@ -232,7 +237,7 @@ class RTAGreenOperator(GreenOperatorBase):
 
     """
 
-    def __init__(self, wigner_operator: RTAWignerOperator):
+    def __init__(self, wigner_operator: RTAWignerOperator) -> None:
         """Initialize the Green's operator with the Wigner operator."""
         self.wigner_operator = wigner_operator
         self.omg_ft = wigner_operator.omg_ft
@@ -244,7 +249,7 @@ class RTAGreenOperator(GreenOperatorBase):
         self.dtyper = wigner_operator.dtyper
         self.dtypec = wigner_operator.dtypec
 
-    def compute(self, recompute=False, clear_wigner=True):
+    def compute(self, recompute: bool = False, clear_wigner: bool = True) -> None:
         """Invert the Wigner operator to obtain the Green operator on the GPU.
 
         Parameters
@@ -310,7 +315,7 @@ class DiskGreenOperator(GreenOperatorBase):
         k_ft: float,
         material: Material,
         atol: float = 0.0,
-    ):
+    ) -> None:
         """Initialize the disk-based Green's operator. No I/O is performed here."""
         self.omg_ft = omg_ft
         self.k_ft = k_ft
@@ -324,7 +329,7 @@ class DiskGreenOperator(GreenOperatorBase):
         self._atol = atol
         self._green = None
 
-    def compute(self, recompute=False):
+    def compute(self, recompute: bool = False) -> None:
         """Load the Green's operator from disk.
 
         Parameters
@@ -411,11 +416,11 @@ class GreenWTESolver(SolverBase):
         source: cp.ndarray,
         source_type: str = "energy",
         dT_init: complex = 1.0 + 1.0j,
-        max_iter=100,
-        conv_thr_rel=1e-12,
-        conv_thr_abs=0,
-        outer_solver="root",
-        command_line_args=Namespace(),
+        max_iter: int = 100,
+        conv_thr_rel: float = 1e-12,
+        conv_thr_abs: float = 0,
+        outer_solver: str = "root",
+        command_line_args: Namespace = Namespace(),
         print_progress: bool = False,
     ) -> None:
         """Initialize GreenWTESolver."""
@@ -453,7 +458,7 @@ class GreenWTESolver(SolverBase):
         )
         return n, [[] for _ in range(self.material.nq)]  # no residuals from matrix multiplication
 
-    def run(self, free=True):
+    def run(self, free: bool = True) -> None:
         r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
         The outer iteration chosen by ``outer_solver`` is used to find self-consistent solutions for the temperature

@@ -10,7 +10,7 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
-  "numpy~=1.26",  # Numpy 2 is not yet supported with Cupy and CUDA
+  "numpy~=1.26",  # Numpy 2 is not yet with bitshuffle
   "scipy~=1.11",
   "h5py",
   "bitshuffle",
@@ -23,12 +23,15 @@ cuda13x = ["cupy-cuda13x>=13.0"]
 [tool.hatch]
 version.path = "greenWTE/__init__.py"
 
-[tool.hatch.envs.hatch-test]
-features = ["cuda12x"]
-default-args = ["test"]
+[tool.hatch.envs.test]
+default-args = ["greenWTE/tests"]
 
-[[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.10", "3.11", "3.12"]
+[[tool.hatch.envs.test.matrix]]
+python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+feature = ["cuda12x", "cuda13x"]
+
+[tool.hatch.envs.test.scripts]
+run = "pytest"
 
 [tool.hatch.envs.docs]
 dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "cupy-cuda12x>=12.0", "matplotlib"]

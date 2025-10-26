@@ -6,7 +6,14 @@ container. It supports lazy dataset creation, dynamic resizing, and optional GPU
 
 import contextlib
 import json
+from os import PathLike
+from types import TracebackType
 from typing import Protocol, runtime_checkable
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import bitshuffle.h5
 import cupy as cp
@@ -14,10 +21,21 @@ import h5py
 import numpy as np
 from scipy.constants import elementary_charge
 
+from greenWTE.base import SolverBase
+
 SCHEMA = "rta-greens/1"
 
 
-def _ensure(f, name, *, shape, maxshape, chunks, dtype, **kwargs):
+def _ensure(
+    f: h5py.File,
+    name: str,
+    *,
+    shape: tuple[int, ...],
+    maxshape: tuple[int, ...] | None,
+    chunks: tuple[int, ...],
+    dtype: np.dtype | str,
+    **kwargs,
+) -> h5py.Dataset:
     """Ensure that a dataset exists in an HDF5 file.
 
     If the dataset named ``name`` exists in the file ``f``, it is returned. Otherwise, the dataset is created with the
@@ -51,7 +69,7 @@ def _ensure(f, name, *, shape, maxshape, chunks, dtype, **kwargs):
     return f.create_dataset(name, shape=shape, maxshape=maxshape, chunks=chunks, dtype=np.dtype(dtype), **kwargs)
 
 
-def _find_or_append_1d(dset, value, atol=0.0):
+def _find_or_append_1d(dset, value: float, atol: float = 0.0):
     """Find the index of ``value`` in a 1-D dataset, appending if absent.
 
     Parameters
@@ -80,7 +98,7 @@ def _find_or_append_1d(dset, value, atol=0.0):
     return i
 
 
-def _find_index_1d(dset, value, atol=0.0):
+def _find_index_1d(dset, value: float, atol: float = 0.0):
     """Find the index of ``value`` in a 1-D dataset.
 
     Parameters
@@ -122,7 +140,7 @@ class GreenContainer:
 
     Parameters
     ----------
-    path : str or os.PathLike
+    path : os.PathLike
         Path to the HDF5 file. Created if it does not exist.
     nat3 : int, optional
         Number of atoms times 3; defines the block size of the operator. Only required
@@ -154,7 +172,16 @@ class GreenContainer:
 
     """
 
-    def __init__(self, path, nat3=None, nq=None, dtype=cp.complex128, meta=None, tile_B=512, read_only=False):
+    def __init__(
+        self,
+        path: PathLike,
+        nat3: int | None = None,
+        nq: int | None = None,
+        dtype: cp.dtype = cp.complex128,
+        meta: dict | None = None,
+        tile_B: int = 512,
+        read_only: bool = False,
+    ) -> None:
         """Initialize the GreenContainer."""
         self.path = path
         if nat3 is None:
@@ -197,15 +224,17 @@ class GreenContainer:
             self.ds_tens = self.f["green"]
             self.ds_mask = self.f["mask"]
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Enter the context manager, returning self."""
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self, type_: type[BaseException] | None, value: BaseException | None, traceback: TracebackType | None
+    ) -> None:
         """Exit the context manager, closing the file."""
         self.close()
 
-    def _ensure_main(self):
+    def _ensure_main(self) -> None:
         """Create /green and /mask if missing, with current Nw,Nk (>0)."""
         if self._have_main:
             return
@@ -233,12 +262,12 @@ class GreenContainer:
         )
         self._have_main = True
 
-    def close(self):
+    def close(self) -> None:
         """Close the underlying HDF5 file."""
         with contextlib.suppress(Exception):
             self.f.close()
 
-    def indices(self, w, k, atol=0.0):
+    def indices(self, w: float, k: float, atol: float = 0.0) -> tuple[int, int]:
         """Return ``(iw, ik)`` indices for the given ``(w, k)``. Append if missing.
 
         Parameters
@@ -272,7 +301,7 @@ class GreenContainer:
 
         return iw, ik
 
-    def find_indices(self, w, k, atol=0.0):
+    def find_indices(self, w: float, k: float, atol: float = 0.0) -> tuple[int, int]:
         """Return ``(iw, ik)`` indices for the given ``(w, k)``.
 
         Parameters
@@ -301,7 +330,7 @@ class GreenContainer:
             raise KeyError(f"Indices for w={w}, k={k} not found.")
         return iw, ik
 
-    def has(self, w, k, q, atol=0.0) -> bool:
+    def has(self, w: float, k: float, q: int, atol: float = 0.0) -> bool:
         """Check whether a Green's operator block exists for given indices.
 
         Parameters
@@ -327,7 +356,7 @@ class GreenContainer:
             return False
         return bool(self.ds_mask[iw, ik, int(q)])
 
-    def has_bz_block(self, w, k, atol=0.0) -> bool:
+    def has_bz_block(self, w: float, k: float, atol: float = 0.0) -> bool:
         """Check whether a Green's operator block exists for the full Brillouin zone.
 
         Parameters
@@ -353,7 +382,7 @@ class GreenContainer:
             return False
         return bool(np.all(self.ds_mask[iw, ik, :]))  # cast from np._bool to python bool
 
-    def get(self, w, k, q, atol=0.0):
+    def get(self, w: float, k: float, q: int, atol: float = 0.0) -> cp.ndarray:
         """Load a single Green’s operator block ``G[w, k, q]``.
 
         Parameters
@@ -384,7 +413,7 @@ class GreenContainer:
         out = self.ds_tens[iw, ik, int(q), :, :][...]  # NumPy array
         return cp.asarray(out)
 
-    def get_bz_block(self, w, k, atol=0.0):
+    def get_bz_block(self, w: float, k: float, atol: float = 0.0) -> cp.ndarray:
         """Load all q-blocks for a given pair ``(w, k)``.
 
         Parameters
@@ -414,7 +443,7 @@ class GreenContainer:
             raise KeyError(f"Missing q-point blocks for w={w}, k={k}.")
         return cp.asarray(tens)
 
-    def put(self, w, k, q, data, atol=0.0, flush=True):
+    def put(self, w: float, k: float, q: int, data: cp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
         """Store a Green's operator block ``G[w, k, q]``.
 
         Parameters
@@ -454,7 +483,7 @@ class GreenContainer:
         if flush:
             self.f.flush()
 
-    def put_bz_block(self, w, k, data, atol=0.0, flush=True):
+    def put_bz_block(self, w: float, k: float, data: cp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
         """Store the full Brillouin‑zone block for a pair ``(w, k)``.
 
         Parameters
@@ -491,7 +520,7 @@ class GreenContainer:
         if flush:
             self.f.flush()
 
-    def omegas(self, k=None):
+    def omegas(self, k: float | None = None) -> np.ndarray | None:
         r"""Return all stored :math:`\omega` values.
 
         Parameters
@@ -502,8 +531,8 @@ class GreenContainer:
 
         Returns
         -------
-        numpy.ndarray
-            One-dimensional array of frequencies in rad/s.
+        numpy.ndarray | None
+            One-dimensional array of frequencies in rad/s. If ``k`` is provided but not found, returns ``None``.
 
         """
         if k is None:
@@ -513,7 +542,7 @@ class GreenContainer:
             return
         return self.ds_w[...][self.ds_mask[:, ik, :].any(axis=1)]
 
-    def ks(self, w=None):
+    def ks(self, w: float | None = None) -> np.ndarray | None:
         r"""Return all stored :math:`k` values.
 
         Parameters
@@ -524,8 +553,8 @@ class GreenContainer:
 
         Returns
         -------
-        numpy.ndarray
-            One-dimensional array of wavevector magnitudes in 1/m.
+        numpy.ndarray | None
+            One-dimensional array of wavevector magnitudes in 1/m. If ``w`` is provided but not found, returns ``None``.
 
         """
         if w is None:
@@ -536,12 +565,19 @@ class GreenContainer:
         return self.ds_k[...][self.ds_mask[iw, :, :].any(axis=1)]
 
 
-def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtyper=cp.float64, dtypec=cp.complex128):
+def load_phono3py_data(
+    filename: PathLike,
+    temperature: float,
+    dir_idx: int,
+    exclude_gamma: bool = True,
+    dtyper: cp.dtype = cp.float64,
+    dtypec: cp.dtype = cp.complex128,
+) -> tuple[cp.ndarray, cp.ndarray, cp.ndarray, cp.ndarray, cp.ndarray, float, cp.ndarray]:
     r"""Load data from a phono3py-generated HDF5 file.
 
     Parameters
     ----------
-    filename : str or os.PathLike
+    filename : os.PathLike
         Path to the :mod:phono3py HDF5 file.
     temperature : float
         Temperature in Kelvin at which to read linewidths and heat capacities.
@@ -616,7 +652,7 @@ def load_phono3py_data(filename, temperature, dir_idx, exclude_gamma=True, dtype
     )
 
 
-def save_solver_result(filename, solver, **kwargs):
+def save_solver_result(filename: PathLike, solver: SolverBase, **kwargs) -> None:
     r"""Save a solver run to an HDF5 file.
 
     This is a light-weight, analysis-friendly snapshot of a full frequency-domain solve, including the temperature
@@ -624,7 +660,7 @@ def save_solver_result(filename, solver, **kwargs):
 
     Parameters
     ----------
-    filename : str or os.PathLike
+    filename : os.PathLike
         Path to the output HDF5 file.
     solver : greenWTE.solver.SolverBase
         A solver instance (e.g., :py:class:`iterative.IterativeWTESolver` or :py:class:`green.GreenWTESolver`) that

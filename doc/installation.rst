@@ -6,6 +6,7 @@ Requirements
 greenWTE requires Python 3.10 or higher and the `NVIDIA CUDA toolkit`_ 12 or 13.
 Note that currently numpy 2.0 or higher is not compatible with CUDA.
 Python package requirements can be found `in the pyproject.toml file`_.
+This file also contains information about what python and CUDA versions this package has been tested with.
 
 .. _NVIDIA CUDA toolkit: https://developer.nvidia.com/cuda-toolkit
 .. _in the pyproject.toml file: https://github.com/kremeyer/greenWTE/blob/main/pyproject.toml

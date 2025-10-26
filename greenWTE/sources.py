@@ -9,7 +9,7 @@ import cupy as cp
 from scipy.constants import hbar
 
 
-def source_term_diag(heat_capacity):
+def source_term_diag(heat_capacity: cp.ndarray) -> cp.ndarray:
     """Diagonal heating source.
 
     Construct :math:`P(q)` with diagonal entries proportional to the mode heat capacity at each :math:`q`, with all
@@ -40,7 +40,7 @@ def source_term_diag(heat_capacity):
         raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
-def source_term_full(heat_capacity):
+def source_term_full(heat_capacity: cp.ndarray) -> cp.ndarray:
     """Full heating source.
 
     Construct :math:`P(q)` with entries proportional to the outer product of per-mode heat capacities at the same
@@ -68,7 +68,7 @@ def source_term_full(heat_capacity):
         raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
-def source_term_offdiag(heat_capacity):
+def source_term_offdiag(heat_capacity: cp.ndarray) -> cp.ndarray:
     """Off-diagonal heating source.
 
     Construct a dense source as in :func:`source_term_full`, then zero the diagonal entries of each ``P[q]``
@@ -90,7 +90,14 @@ def source_term_offdiag(heat_capacity):
     return source_term
 
 
-def source_term_gradT(k_ft, velocity_operator, phonon_freq, linewidth, heat_capacity, volume):
+def source_term_gradT(
+    k_ft: float,
+    velocity_operator: cp.ndarray,
+    phonon_freq: cp.ndarray,
+    linewidth: cp.ndarray,
+    heat_capacity: cp.ndarray,
+    volume: float,
+) -> cp.ndarray:
     r"""Temperature-gradient source.
 
     For each :math:`q`, define :math:`\bar N(q) = \mathrm{diag}\!\left(\frac{V\,n_q}{\hbar\,\omega(q)}\,C(q)\right)` and
@@ -137,7 +144,14 @@ def source_term_gradT(k_ft, velocity_operator, phonon_freq, linewidth, heat_capa
     return source_term
 
 
-def source_term_anticommutator(k_ft, velocity_operator, phonon_freq, linewidth, heat_capacity, volume):
+def source_term_anticommutator(
+    k_ft: float,
+    velocity_operator: cp.ndarray,
+    phonon_freq: cp.ndarray,
+    linewidth: cp.ndarray,
+    heat_capacity: cp.ndarray,
+    volume: float,
+) -> cp.ndarray:
     """Temperature-gradient source via anticommutator.
 
     Constructs the same source as :func:`source_term_gradT`. This function is kept for backward

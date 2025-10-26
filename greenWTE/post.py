@@ -6,7 +6,13 @@ from scipy.interpolate import LinearNDInterpolator, PchipInterpolator
 from scipy.signal import savgol_filter
 
 
-def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
+def manual_ifft(
+    freq: np.ndarray,
+    data: np.ndarray,
+    n_freq_lin: int = 10000,
+    n_t: int | None = None,
+    freq_cutoff: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Perform an inverse FFT manually with interpolation onto a linear frequency grid.
 
     Parameters
@@ -63,7 +69,7 @@ def manual_ifft(freq, data, n_freq_lin=10000, n_t=None, freq_cutoff=None):
     return t[1:], data_ft[1:]
 
 
-def _ifft_integral(f, data, t, df):
+def _ifft_integral(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float) -> np.ndarray:
     data_ft = np.zeros_like(t, dtype=complex)
     for i, ti in enumerate(t):
         data_ft[i] = np.sum(np.exp(-1j * f * ti) * data) * df
@@ -71,7 +77,7 @@ def _ifft_integral(f, data, t, df):
 
 
 @njit(parallel=True, fastmath=True)
-def _ifft_integral_jit(f, data, t, df):
+def _ifft_integral_jit(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float) -> np.ndarray:
     n_t = t.shape[0]
     n_f = f.shape[0]
     data_ft = np.empty(n_t, dtype=np.complex128)
@@ -93,7 +99,14 @@ def _ifft_integral_jit(f, data, t, df):
     return data_ft
 
 
-def interpolate_onto_path(qpath, qmesh, data, n=1000, smooth=False, smooth_kwargs=None):
+def interpolate_onto_path(
+    qpath: np.ndarray,
+    qmesh: np.ndarray,
+    data: np.ndarray,
+    n: int = 1000,
+    smooth: bool = False,
+    smooth_kwargs: dict | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Interpolate data along a specified path in a multidimensional space.
 
     Given a path defined by a sequence of points (`qpath`), this function interpolates

@@ -8,4 +8,4 @@ warnings.filterwarnings(
     "ignore", category=FutureWarning, message=r".*`rcond` parameter will change to the default of machine precision.*"
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

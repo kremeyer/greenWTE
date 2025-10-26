@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-# [0.3.0] - 2025 - 2025-10-10
+# [0.3.1] - 2025-10-26
+
+### Added
+
+- docs: installation, tutorial and CLI args
+- recovered python 3.10 compatibility
+
+# [0.3.0] - 2025-10-10
 
 ### Added
 

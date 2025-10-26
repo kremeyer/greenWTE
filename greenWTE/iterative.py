@@ -80,12 +80,12 @@ class IterativeWTESolver(SolverBase):
         source: cp.ndarray,
         source_type: str = "energy",
         dT_init: complex = 1.0 + 1.0j,
-        max_iter=100,
-        conv_thr_rel=1e-12,
-        conv_thr_abs=0,
-        outer_solver="aitken",
-        inner_solver="gmres",
-        command_line_args=Namespace(),
+        max_iter: int = 100,
+        conv_thr_rel: float = 1e-12,
+        conv_thr_abs: float = 0,
+        outer_solver: str = "aitken",
+        inner_solver: str = "gmres",
+        command_line_args: Namespace = Namespace(),
         print_progress: bool = False,
     ) -> None:
         """Initialize IterativeWTESolver."""

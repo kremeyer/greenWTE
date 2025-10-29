@@ -153,7 +153,7 @@ def request_stop(signal: int, frame) -> None:
 
     """
     global STOP
-    if not STOP:
+    if not STOP:  # pragma: no cover
         print(f"Signal {signal} received - finishing current write, flushing, and exiting...")
         STOP = True
     else:  # pragma: no cover

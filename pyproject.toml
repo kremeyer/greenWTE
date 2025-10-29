@@ -10,7 +10,7 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
-  "numpy~=1.26",  # Numpy 2 is not yet with bitshuffle
+  "numpy~=1.26",  # Numpy 2 is not yet compatible with bitshuffle
   "scipy~=1.11",
   "h5py",
   "bitshuffle",
@@ -34,7 +34,7 @@ feature = ["cuda12x", "cuda13x"]
 run = "pytest"
 
 [tool.hatch.envs.docs]
-dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "cupy-cuda12x>=12.0", "matplotlib"]
+dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "matplotlib"]
 
 [tool.hatch.envs.docs.scripts]
 build = "cd doc && make clean && make doctest && make html"
@@ -66,7 +66,7 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["greenWTE/tests"]
-addopts = "--cov=greenWTE --cov-report=term-missing"
+addopts = "--cov=greenWTE --cov-report=term-missing --cov-report=xml --cov-config=pyproject.toml"
 filterwarnings = [
   # Ignore NumPy lstsq rcond deprecation emitted inside cupyx.scipy.sparse.linalg.gmres
   "ignore:`rcond` parameter will change:FutureWarning:cupyx\\.scipy\\.sparse\\.linalg\\._iterative",
@@ -78,6 +78,9 @@ filterwarnings = [
 branch = true
 source = ["greenWTE"]
 omit = ["greenWTE/post.py", "greenWTE/tests/*"]
+parallel = true
+sigterm = true
+patch = ["subprocess"]
 
 [tool.coverage.report]
 show_missing = true

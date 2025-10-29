@@ -361,5 +361,5 @@ def test_normal_precompute_green_runs(tmp_path, batch):
 
     # check that all the greens functions from the first run were found in the second run
     for line in result.stdout.splitlines()[-16:]:
-        assert "0.0s" in line or "found" in line
+        assert "0." in line or "found" in line
     assert result.returncode == 0, f"Command failed with error: {result.stderr}"

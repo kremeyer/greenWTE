@@ -16,12 +16,13 @@ except ImportError:
     from typing_extensions import Self
 
 import bitshuffle.h5
-import cupy as cp
 import h5py
 import numpy as np
 from scipy.constants import elementary_charge
 
 from greenWTE.base import SolverBase
+
+from . import to_cpu, xp
 
 SCHEMA = "rta-greens/1"
 
@@ -128,11 +129,11 @@ def _find_index_1d(dset, value: float, atol: float = 0.0):
 class GreenOperatorLike(Protocol):
     """Used for type checking Green's operator-like objects."""
 
-    _green: cp.ndarray
+    _green: xp.ndarray
 
 
 class GreenContainer:
-    r"""Container for HDF5‑stored Green’s operators.
+    r"""Container for HDF5-stored Green's operators.
 
     This class manages the storage of precomputed Green's operators indexed by frequency ``omega``, wavevector magnitude
     ``k``, and a q-point index ``q``. Data is stored in a 5D array with shape (Nw, Nk, nq, m, m), where
@@ -177,7 +178,7 @@ class GreenContainer:
         path: PathLike,
         nat3: int | None = None,
         nq: int | None = None,
-        dtype: cp.dtype = cp.complex128,
+        dtype: xp.dtype = xp.complex128,
         meta: dict | None = None,
         tile_B: int = 512,
         read_only: bool = False,
@@ -210,7 +211,7 @@ class GreenContainer:
             if self.meta:
                 self.f.attrs["meta"] = json.dumps(self.meta)
         else:
-            on_disk_dtype = cp.dtype(self.f.attrs["dtype"])
+            on_disk_dtype = xp.dtype(self.f.attrs["dtype"])
             if on_disk_dtype != self.dtype:
                 raise TypeError(f"Data type mismatch: {on_disk_dtype} (on disk) != {self.dtype} (requested)")
 
@@ -382,7 +383,7 @@ class GreenContainer:
             return False
         return bool(np.all(self.ds_mask[iw, ik, :]))  # cast from np._bool to python bool
 
-    def get(self, w: float, k: float, q: int, atol: float = 0.0) -> cp.ndarray:
+    def get(self, w: float, k: float, q: int, atol: float = 0.0) -> xp.ndarray:
         """Load a single Green’s operator block ``G[w, k, q]``.
 
         Parameters
@@ -411,9 +412,9 @@ class GreenContainer:
         if not self._have_main or not bool(self.ds_mask[iw, ik, int(q)]):
             raise KeyError(f"Requested block w={w}, k={k}, q={q} not found.")
         out = self.ds_tens[iw, ik, int(q), :, :][...]  # NumPy array
-        return cp.asarray(out)
+        return xp.asarray(out)
 
-    def get_bz_block(self, w: float, k: float, atol: float = 0.0) -> cp.ndarray:
+    def get_bz_block(self, w: float, k: float, atol: float = 0.0) -> xp.ndarray:
         """Load all q-blocks for a given pair ``(w, k)``.
 
         Parameters
@@ -441,9 +442,9 @@ class GreenContainer:
         mask = self.ds_mask[iw, ik, :]
         if not np.all(mask):
             raise KeyError(f"Missing q-point blocks for w={w}, k={k}.")
-        return cp.asarray(tens)
+        return xp.asarray(tens)
 
-    def put(self, w: float, k: float, q: int, data: cp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
+    def put(self, w: float, k: float, q: int, data: xp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
         """Store a Green's operator block ``G[w, k, q]``.
 
         Parameters
@@ -471,7 +472,7 @@ class GreenContainer:
         # ensure main exists (it will after indices())
         if not self._have_main:
             self._ensure_main()
-        arr = data.get() if isinstance(data, cp.ndarray) else data
+        arr = data.get() if hasattr(data, "get") else data
         raw = data._green if isinstance(data, GreenOperatorLike) else data
         arr = raw.get() if hasattr(raw, "get") else raw
         if arr.shape != (self.m, self.m):
@@ -483,8 +484,8 @@ class GreenContainer:
         if flush:
             self.f.flush()
 
-    def put_bz_block(self, w: float, k: float, data: cp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
-        """Store the full Brillouin‑zone block for a pair ``(w, k)``.
+    def put_bz_block(self, w: float, k: float, data: xp.ndarray, atol: float = 0.0, flush: bool = True) -> None:
+        """Store the full Brillouin-zone block for a pair ``(w, k)``.
 
         Parameters
         ----------
@@ -570,9 +571,9 @@ def load_phono3py_data(
     temperature: float,
     dir_idx: int,
     exclude_gamma: bool = True,
-    dtyper: cp.dtype = cp.float64,
-    dtypec: cp.dtype = cp.complex128,
-) -> tuple[cp.ndarray, cp.ndarray, cp.ndarray, cp.ndarray, cp.ndarray, float, cp.ndarray]:
+    dtyper: xp.dtype = xp.float64,
+    dtypec: xp.dtype = xp.complex128,
+) -> tuple[xp.ndarray, xp.ndarray, xp.ndarray, xp.ndarray, xp.ndarray, float, xp.ndarray]:
     r"""Load data from a phono3py-generated HDF5 file.
 
     Parameters
@@ -623,21 +624,21 @@ def load_phono3py_data(
                 f"Available temperatures: {available_temperatures}"
             )
         q_idx = int(exclude_gamma)
-        qpoint = cp.array(h5f["qpoint"][q_idx:, :])  # (nq, 3) | 1
+        qpoint = xp.array(h5f["qpoint"][q_idx:, :])  # (nq, 3) | 1
         velocity_operator = (
-            cp.array(h5f["velocity_operator_sym"][q_idx:, ..., dir_idx], dtype=dtypec) * 1e2
+            xp.array(h5f["velocity_operator_sym"][q_idx:, ..., dir_idx], dtype=dtypec) * 1e2
         )  # (nq, nat3, nat3) | m/s
-        phonon_freq = cp.array(h5f["frequency"][q_idx:], dtype=dtyper) * 1e12 * 2 * cp.pi  # (nq, nat3) | [rad/s]
-        linewidth = cp.array(h5f["gamma"][temperature_index, q_idx:], dtype=dtyper)  # (nT, nq, nat3)
-        linewidth += cp.array(h5f["gamma_isotope"][q_idx:], dtype=dtyper)  # (nq, nat3)
-        linewidth += cp.array(h5f["gamma_boundary"][q_idx:], dtype=dtyper)  # (nq, nat3)
-        linewidth *= 1e12 * 2 * cp.pi  # [rad/s] | ordinal to angular frequency
+        phonon_freq = xp.array(h5f["frequency"][q_idx:], dtype=dtyper) * 1e12 * 2 * xp.pi  # (nq, nat3) | [rad/s]
+        linewidth = xp.array(h5f["gamma"][temperature_index, q_idx:], dtype=dtyper)  # (nT, nq, nat3)
+        linewidth += xp.array(h5f["gamma_isotope"][q_idx:], dtype=dtyper)  # (nq, nat3)
+        linewidth += xp.array(h5f["gamma_boundary"][q_idx:], dtype=dtyper)  # (nq, nat3)
+        linewidth *= 1e12 * 2 * xp.pi  # [rad/s] | ordinal to angular frequency
         linewidth *= 2  # HWHM -> FWHM
-        volume = cp.array(h5f["volume"][()], dtype=dtyper) * 1e-30  # m^3
-        weight = cp.array(h5f["weight"][q_idx:], dtype=dtyper)  # nq | 1
-        weight /= cp.sum(weight)
+        volume = xp.array(h5f["volume"][()], dtype=dtyper) * 1e-30  # m^3
+        weight = xp.array(h5f["weight"][q_idx:], dtype=dtyper)  # nq | 1
+        weight /= xp.sum(weight)
         heat_capacity = (
-            cp.array(h5f["heat_capacity"][temperature_index, q_idx:], dtype=dtyper) * elementary_charge
+            xp.array(h5f["heat_capacity"][temperature_index, q_idx:], dtype=dtyper) * elementary_charge
         )  # (nT, nq, nat3) | J/K
         heat_capacity *= weight[:, None] / volume  # (nq, nat3) | J/(K m^3)
 
@@ -689,50 +690,50 @@ def save_solver_result(filename: PathLike, solver: SolverBase, **kwargs) -> None
 
     """
     with h5py.File(filename, "w") as h5f:
-        h5f.create_dataset("dT", data=solver.dT.get())
+        h5f.create_dataset("dT", data=to_cpu(solver.dT))
         h5f["dT"].attrs["units"] = "Kelvin"
-        h5f.create_dataset("dT_init", data=solver.dT_init.get())
+        h5f.create_dataset("dT_init", data=to_cpu(solver.dT_init))
         h5f["dT_init"].attrs["units"] = "Kelvin"
-        h5f.create_dataset("n", data=solver.n.get())
-        h5f.create_dataset("niter", data=solver.niter.get())
-        h5f.create_dataset("iter_time", data=solver.iter_time.get())
+        h5f.create_dataset("n", data=to_cpu(solver.n))
+        h5f.create_dataset("niter", data=to_cpu(solver.niter))
+        h5f.create_dataset("iter_time", data=to_cpu(solver.iter_time))
         h5f["iter_time"].attrs["units"] = "seconds"
-        h5f.create_dataset("gmres_residual", data=solver.gmres_residual.get())
-        h5f.create_dataset("dT_iterates", data=solver.dT_iterates.get())
+        h5f.create_dataset("gmres_residual", data=to_cpu(solver.gmres_residual))
+        h5f.create_dataset("dT_iterates", data=to_cpu(solver.dT_iterates))
         h5f["dT_iterates"].attrs["units"] = "Kelvin"
-        h5f.create_dataset("n_norms", data=solver.n_norms.get())
-        h5f.create_dataset("source", data=solver.source.get())
+        h5f.create_dataset("n_norms", data=to_cpu(solver.n_norms))
+        h5f.create_dataset("source", data=to_cpu(solver.source))
 
-        h5f.create_dataset("omega", data=solver.omg_ft_array.get())
+        h5f.create_dataset("omega", data=to_cpu(solver.omg_ft_array))
         h5f["omega"].attrs["units"] = "radians/second"
-        h5f.create_dataset("k", data=solver.k_ft)
+        h5f.create_dataset("k", data=to_cpu(solver.k_ft))
         h5f["k"].attrs["units"] = "radians/meter"
-        h5f.create_dataset("max_iter", data=solver.max_iter)
-        h5f.create_dataset("conv_thr_rel", data=solver.conv_thr_rel)
-        h5f.create_dataset("conv_thr_abs", data=solver.conv_thr_abs)
+        h5f.create_dataset("max_iter", data=to_cpu(solver.max_iter))
+        h5f.create_dataset("conv_thr_rel", data=to_cpu(solver.conv_thr_rel))
+        h5f.create_dataset("conv_thr_abs", data=to_cpu(solver.conv_thr_abs))
         h5f["conv_thr_abs"].attrs["units"] = "Kelvin"
         h5f.create_dataset("dtype_real", data=str(solver.material.dtyper))
         h5f.create_dataset("dtype_complex", data=str(solver.material.dtypec))
         h5f.create_dataset("outer_solver", data=solver.outer_solver)
         h5f.create_dataset("inner_solver", data=solver.inner_solver)
 
-        h5f.create_dataset("kappa", data=solver.kappa)
+        h5f.create_dataset("kappa", data=to_cpu(solver.kappa))
         h5f["kappa"].attrs["units"] = "Watts/meter/Kelvin"
-        h5f.create_dataset("kappa_P", data=solver.kappa_p)
+        h5f.create_dataset("kappa_P", data=to_cpu(solver.kappa_p))
         h5f["kappa_P"].attrs["units"] = "Watts/meter/Kelvin"
-        h5f.create_dataset("kappa_C", data=solver.kappa_c)
+        h5f.create_dataset("kappa_C", data=to_cpu(solver.kappa_c))
         h5f["kappa_C"].attrs["units"] = "Watts/meter/Kelvin"
 
         for key, value in vars(solver.command_line_args).items():
             if key in h5f:
                 continue
-            v = value.get() if hasattr(value, "get") else value
+            v = to_cpu(value)
             if isinstance(v, (list, tuple)):
                 v = np.asarray(v)
             h5f.create_dataset(key, data=v)
 
         for key, value in kwargs.items():
-            v = value.get() if hasattr(value, "get") else value
+            v = to_cpu(value)
             if isinstance(v, (list, tuple)):
                 v = np.asarray(v)
             h5f.create_dataset(key, data=v)

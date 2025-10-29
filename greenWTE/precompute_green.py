@@ -27,8 +27,9 @@ import signal
 from argparse import ArgumentParser, Namespace
 from typing import Iterable
 
-import cupy as cp
 import numpy as np
+
+from . import xp
 
 
 def get_parser() -> ArgumentParser:
@@ -174,11 +175,11 @@ if __name__ == "__main__":  # pragma: no branch
     args = parse_arguments()
 
     if args.double_precision:
-        dtyper = cp.float64
-        dtypec = cp.complex128
+        dtyper = xp.float64
+        dtypec = xp.complex128
     else:
-        dtyper = cp.float32
-        dtypec = cp.complex64
+        dtyper = xp.float32
+        dtypec = xp.complex64
 
     direction_idx = {"x": 0, "y": 1, "z": 2}[args.direction]
 

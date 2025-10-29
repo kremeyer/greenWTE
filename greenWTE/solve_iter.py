@@ -10,16 +10,14 @@ Notes
 -----
 - ``--spatial-frequency`` expects a base-10 exponent ``x`` and is converted to :math:`k = 10^x` in rad/m.
 - ``--omega-range`` accepts either a **single** exponent (interpreted as :math:`10^x`) or a **triplet**
-  ``start stop num`` producing ``cp.logspace(start, stop, num)`` in rad/s, sorted ascending.
+  ``start stop num`` producing ``xp.logspace(start, stop, num)`` in rad/s, sorted ascending.
 
 """
 
 from argparse import ArgumentParser, Namespace
 from typing import Iterable
 
-import cupy as cp
-
-from . import sources
+from . import sources, xp
 from .io import save_solver_result
 from .iterative import IterativeWTESolver
 
@@ -116,13 +114,13 @@ def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
     a = parser.parse_args()
 
     if len(a.omega_range) == 1:
-        a.omega_range = cp.array([10 ** (float(a.omega_range[0]))])
+        a.omega_range = xp.array([10 ** (float(a.omega_range[0]))])
     elif len(a.omega_range) == 3:
         a.omega_range[-1] = int(a.omega_range[-1])
-        a.omega_range = cp.logspace(*a.omega_range)
+        a.omega_range = xp.logspace(*a.omega_range)
     else:
         raise ValueError("omega_range must be a single value or 3 values (start, stop, num)")
-    a.omega_range = cp.sort(a.omega_range)
+    a.omega_range = xp.sort(a.omega_range)
 
     a.spatial_frequency = 10 ** float(a.spatial_frequency)
 
@@ -134,7 +132,7 @@ def parse_arguments(argv: Iterable[str] | None = None) -> Namespace:
 if __name__ == "__main__":  # pragma: no branch
     from .base import Material
 
-    cp.set_printoptions(
+    xp.set_printoptions(
         formatter={
             "complex_kind": lambda z: f"{z: .2e}",
             "float_kind": lambda x: f"{x: .2e}",
@@ -144,17 +142,17 @@ if __name__ == "__main__":  # pragma: no branch
     args = parse_arguments()
 
     if args.single_precision:
-        dtyper = cp.float32
-        dtypec = cp.complex64
+        dtyper = xp.float32
+        dtypec = xp.complex64
     else:
-        dtyper = cp.float64
-        dtypec = cp.complex128
+        dtyper = xp.float64
+        dtypec = xp.complex128
 
-    if cp.finfo(dtyper).resolution > args.conv_thr_rel:
-        args.conv_thr_rel = 2 * cp.finfo(dtyper).resolution
+    if xp.finfo(dtyper).resolution > args.conv_thr_rel:
+        args.conv_thr_rel = 2 * xp.finfo(dtyper).resolution
         print(
             f"Warning: convergence threshold {args.conv_thr_rel} is smaller than machine"
-            f" precision {cp.finfo(dtyper).resolution}."
+            f" precision {xp.finfo(dtyper).resolution}."
         )
         print(f"Using twice machine precision {args.conv_thr_rel} instead.")
 
@@ -175,7 +173,7 @@ if __name__ == "__main__":  # pragma: no branch
     )
 
     if args.diag_velocity_operator:
-        offdiag_mask = ~cp.eye(mat.velocity_operator.shape[1], dtype=cp.bool_)
+        offdiag_mask = ~xp.eye(mat.velocity_operator.shape[1], dtype=xp.bool_)
         mat.velocity_operator[:, offdiag_mask] = 0
 
     if args.source_type == "full":
@@ -256,9 +254,9 @@ if __name__ == "__main__":  # pragma: no branch
             f"{solver.kappa[i]: {cell_width}.2e} "
             f"{solver.kappa_p[i]: {cell_width}.2e} "
             f"{solver.kappa_c[i]: {cell_width}.2e} "
-            f"{cp.abs(solver.kappa[i]): {cell_width // 2}.2e} "
-            f"{cp.abs(solver.kappa_p[i]): {cell_width // 2}.2e} "
-            f"{cp.abs(solver.kappa_c[i]): {cell_width // 2}.2e}"
+            f"{xp.abs(solver.kappa[i]): {cell_width // 2}.2e} "
+            f"{xp.abs(solver.kappa_p[i]): {cell_width // 2}.2e} "
+            f"{xp.abs(solver.kappa_c[i]): {cell_width // 2}.2e}"
         )
     print(f"{'-' * 107}")
 

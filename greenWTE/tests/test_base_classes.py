@@ -1,9 +1,9 @@
 """Test base functionality of classes."""
 
-import cupy as cp
 import numpy as np
 import pytest
 
+from greenWTE import xp
 from greenWTE.base import AitkenAccelerator, Material, dT_to_N_iterative, dT_to_N_matmul, estimate_initial_dT
 from greenWTE.green import GreenWTESolver, RTAGreenOperator, RTAWignerOperator
 from greenWTE.iterative import IterativeWTESolver
@@ -63,25 +63,25 @@ def test_initial_dT_estimation():
     """Test the initial dT estimation function."""
     history = []
     # default value
-    assert estimate_initial_dT(0, history) == cp.asarray((1.0 + 1.0j))
+    assert estimate_initial_dT(0, history) == xp.asarray((1.0 + 1.0j))
 
     history.append((1, 3.0 + 3.0j))
     history.append((0, 1.0 + 1.0j))
     # interpolation
-    assert estimate_initial_dT(0.5, history) == cp.asarray((2.0 + 2.0j))
+    assert estimate_initial_dT(0.5, history) == xp.asarray((2.0 + 2.0j))
 
     # extrapolation
-    assert estimate_initial_dT(1.5, history) == cp.asarray((4.0 + 4.0j))
+    assert estimate_initial_dT(1.5, history) == xp.asarray((4.0 + 4.0j))
 
 
 def test_wrong_outer_solver_error():
     """Test that an error is raised when using an invalid outer solver."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
 
-    source = cp.empty((material.nq, material.nat3, material.nat3))
+    source = xp.empty((material.nq, material.nat3, material.nat3))
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -93,7 +93,7 @@ def test_wrong_outer_solver_error():
         solver.run()
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
@@ -102,7 +102,7 @@ def test_wrong_outer_solver_error():
 
     with pytest.raises(ValueError, match="Unknown outer solver: invalid"):
         solver = GreenWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -116,10 +116,10 @@ def test_wrong_inner_solver_error():
     """Test that an error is raised when using an invalid inner solver."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
 
-    source = cp.empty((material.nq, material.nat3, material.nat3))
+    source = xp.empty((material.nq, material.nat3, material.nat3))
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -135,11 +135,11 @@ def test_wrong_source_type_error():
     """Test that an error is raised when the source is not a valid type."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
 
-    source = cp.empty((material.nq, material.nat3, material.nat3))
+    source = xp.empty((material.nq, material.nat3, material.nat3))
 
     with pytest.raises(ValueError, match="Unknown source type: invalid"):
         IterativeWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -150,7 +150,7 @@ def test_wrong_source_type_error():
         dT_to_N_iterative(0 + 0j, 0, 0, material, source, "invalid")
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
@@ -159,7 +159,7 @@ def test_wrong_source_type_error():
 
     with pytest.raises(ValueError, match="Unknown source type: invalid"):
         GreenWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -178,7 +178,7 @@ def test_root_not_converged():
     conv_thr_abs = 0.0
 
     material = Material.from_phono3py(
-        SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
+        SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=xp.float32, dtypec=xp.complex64
     )
     source = source_term_gradT(
         DEFAULT_THERMAL_GRATING,
@@ -190,7 +190,7 @@ def test_root_not_converged():
     )
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -213,10 +213,10 @@ def test_solver_not_run_error():
     """Test that an error is raised when some properties are accessed before the solver has been run."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
 
-    source = cp.empty((material.nq, material.nat3, material.nat3))
+    source = xp.empty((material.nq, material.nat3, material.nat3))
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -249,7 +249,7 @@ def test_printing_options_iterative(capfd):
 
     # one omega point will print progress of iterations
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -267,7 +267,7 @@ def test_printing_options_iterative(capfd):
 
     # two omega points will print not progress of iterations
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -284,7 +284,7 @@ def test_printing_options_iterative(capfd):
 
     # no printing
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -314,14 +314,14 @@ def test_printing_options_green(capfd):
     )
 
     rwo1 = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo1.compute()
     rgo1 = RTAGreenOperator(rwo1)
     rgo1.compute(clear_wigner=True)
 
     rwo2 = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY * 2]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY * 2]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo2.compute()
     rgo2 = RTAGreenOperator(rwo1)
@@ -329,7 +329,7 @@ def test_printing_options_green(capfd):
 
     # one omega point will print progress of iterations
     solver = GreenWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         greens=[rgo1],
@@ -346,7 +346,7 @@ def test_printing_options_green(capfd):
 
     # two omega points will print not progress of iterations
     solver = GreenWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         greens=[rgo1, rgo2],
@@ -363,7 +363,7 @@ def test_printing_options_green(capfd):
 
     # no printing
     solver = GreenWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         greens=[rgo1, rgo2],
@@ -393,7 +393,7 @@ def test_omega_green_length_mismatch():
     )
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
     rgo = RTAGreenOperator(rwo)
@@ -401,7 +401,7 @@ def test_omega_green_length_mismatch():
 
     with pytest.raises(ValueError, match="Number of Green's operators must match the number of omg_ft values."):
         GreenWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_TEMPORAL_FREQUENCY * 2]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             greens=[rgo],
@@ -417,17 +417,17 @@ def test_basesolver_attribute_caching():
     # bypass __init__
     solver = object.__new__(IterativeWTESolver)
 
-    cached = cp.asarray([1.0, 2.0, 3.0])
+    cached = xp.asarray([1.0, 2.0, 3.0])
     solver._kappa = cached
     out = solver.kappa
     assert out is cached
 
-    cached = cp.asarray([4.0, 5.0, 6.0])
+    cached = xp.asarray([4.0, 5.0, 6.0])
     solver._kappa_p = cached
     out = solver.kappa_p
     assert out is cached
 
-    cached = cp.asarray([7.0, 8.0, 9.0])
+    cached = xp.asarray([7.0, 8.0, 9.0])
     solver._kappa_c = cached
     out = solver.kappa_c
     assert out is cached
@@ -445,20 +445,20 @@ def test_safe_divide():
     assert np.allclose(out, np.array([1.0, 0.0, 1.0]))
 
     # cupy arrays
-    num = cp.array([1.0, 2.0, 3.0])
-    den = cp.array([1.0, 0.0, 3.0])
+    num = xp.array([1.0, 2.0, 3.0])
+    den = xp.array([1.0, 0.0, 3.0])
     out = _safe_divide(num, den)
-    assert isinstance(out, cp.ndarray)
-    assert cp.allclose(out, cp.array([1.0, 0.0, 1.0]))
+    assert isinstance(out, xp.ndarray)
+    assert xp.allclose(out, xp.array([1.0, 0.0, 1.0]))
 
     # mixed arrays
     num = np.array([1.0, 2.0, 3.0])
-    den = cp.array([1.0, 0.0, 3.0])
+    den = xp.array([1.0, 0.0, 3.0])
     out = _safe_divide(num, den)
     assert isinstance(out, np.ndarray)
     assert np.allclose(out, np.array([1.0, 0.0, 1.0]))
 
-    num = cp.array([1.0, 2.0, 3.0])
+    num = xp.array([1.0, 2.0, 3.0])
     den = np.array([1.0, 0.0, 3.0])
     out = _safe_divide(num, den)
     assert isinstance(out, np.ndarray)

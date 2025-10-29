@@ -5,11 +5,12 @@ solvers. All functions return a **complex** tensor with shape ``(nq, nat3, nat3)
 ``complex64``/``complex128`` based on the floating dtype of the provided arrays.
 """
 
-import cupy as cp
 from scipy.constants import hbar
 
+from . import xp
 
-def source_term_diag(heat_capacity: cp.ndarray) -> cp.ndarray:
+
+def source_term_diag(heat_capacity: xp.ndarray) -> xp.ndarray:
     """Diagonal heating source.
 
     Construct :math:`P(q)` with diagonal entries proportional to the mode heat capacity at each :math:`q`, with all
@@ -28,19 +29,19 @@ def source_term_diag(heat_capacity: cp.ndarray) -> cp.ndarray:
 
     """
     nq, nat3 = heat_capacity.shape
-    source_term = cp.zeros((nq, nat3, nat3), dtype=heat_capacity.dtype)
-    heat_capacity_tot = cp.sum(heat_capacity)
+    source_term = xp.zeros((nq, nat3, nat3), dtype=heat_capacity.dtype)
+    heat_capacity_tot = xp.sum(heat_capacity)
     for i in range(nq):
-        cp.fill_diagonal(source_term[i], heat_capacity[i] / heat_capacity_tot)
-    if heat_capacity.dtype == cp.float32:
-        return source_term.astype(cp.complex64)
-    elif heat_capacity.dtype == cp.float64:
-        return source_term.astype(cp.complex128)
+        xp.fill_diagonal(source_term[i], heat_capacity[i] / heat_capacity_tot)
+    if heat_capacity.dtype == xp.float32:
+        return source_term.astype(xp.complex64)
+    elif heat_capacity.dtype == xp.float64:
+        return source_term.astype(xp.complex128)
     else:
         raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
-def source_term_full(heat_capacity: cp.ndarray) -> cp.ndarray:
+def source_term_full(heat_capacity: xp.ndarray) -> xp.ndarray:
     """Full heating source.
 
     Construct :math:`P(q)` with entries proportional to the outer product of per-mode heat capacities at the same
@@ -58,17 +59,17 @@ def source_term_full(heat_capacity: cp.ndarray) -> cp.ndarray:
         Source term for full heating, shape (nq, nat3, nat3).
 
     """
-    heat_capacity_tot = cp.sum(heat_capacity)
+    heat_capacity_tot = xp.sum(heat_capacity)
     source_term = heat_capacity[:, :, None] * heat_capacity[:, None, :] / (heat_capacity_tot**2)
-    if heat_capacity.dtype == cp.float32:
-        return source_term.astype(cp.complex64)
-    elif heat_capacity.dtype == cp.float64:
-        return source_term.astype(cp.complex128)
+    if heat_capacity.dtype == xp.float32:
+        return source_term.astype(xp.complex64)
+    elif heat_capacity.dtype == xp.float64:
+        return source_term.astype(xp.complex128)
     else:
         raise ValueError(f"Unsupported dtype {heat_capacity.dtype} for heat_capacity array.")
 
 
-def source_term_offdiag(heat_capacity: cp.ndarray) -> cp.ndarray:
+def source_term_offdiag(heat_capacity: xp.ndarray) -> xp.ndarray:
     """Off-diagonal heating source.
 
     Construct a dense source as in :func:`source_term_full`, then zero the diagonal entries of each ``P[q]``
@@ -86,18 +87,18 @@ def source_term_offdiag(heat_capacity: cp.ndarray) -> cp.ndarray:
     """
     source_term = source_term_full(heat_capacity)
     for i in range(source_term.shape[0]):
-        cp.fill_diagonal(source_term[i], 0)
+        xp.fill_diagonal(source_term[i], 0)
     return source_term
 
 
 def source_term_gradT(
     k_ft: float,
-    velocity_operator: cp.ndarray,
-    phonon_freq: cp.ndarray,
-    linewidth: cp.ndarray,
-    heat_capacity: cp.ndarray,
+    velocity_operator: xp.ndarray,
+    phonon_freq: xp.ndarray,
+    linewidth: xp.ndarray,
+    heat_capacity: xp.ndarray,
     volume: float,
-) -> cp.ndarray:
+) -> xp.ndarray:
     r"""Temperature-gradient source.
 
     For each :math:`q`, define :math:`\bar N(q) = \mathrm{diag}\!\left(\frac{V\,n_q}{\hbar\,\omega(q)}\,C(q)\right)` and
@@ -134,24 +135,24 @@ def source_term_gradT(
 
     """
     nq, nat3 = heat_capacity.shape
-    source_term = cp.zeros((nq, nat3, nat3), dtype=velocity_operator.dtype)
+    source_term = xp.zeros((nq, nat3, nat3), dtype=velocity_operator.dtype)
     for i in range(nq):
         v = velocity_operator[i]
         # the dT here is dropped and multiplied to the source in the solver part of the code
-        nbar = cp.diag(volume * nq / hbar / phonon_freq[i] * heat_capacity[i])
-        G = cp.diag(linewidth[i])
+        nbar = xp.diag(volume * nq / hbar / phonon_freq[i] * heat_capacity[i])
+        G = xp.diag(linewidth[i])
         source_term[i] = 1j * k_ft / 2 * (v @ nbar + nbar @ v) - 0.5 * (G @ nbar + nbar @ G)
     return source_term
 
 
 def source_term_anticommutator(
     k_ft: float,
-    velocity_operator: cp.ndarray,
-    phonon_freq: cp.ndarray,
-    linewidth: cp.ndarray,
-    heat_capacity: cp.ndarray,
+    velocity_operator: xp.ndarray,
+    phonon_freq: xp.ndarray,
+    linewidth: xp.ndarray,
+    heat_capacity: xp.ndarray,
     volume: float,
-) -> cp.ndarray:
+) -> xp.ndarray:
     """Temperature-gradient source via anticommutator.
 
     Constructs the same source as :func:`source_term_gradT`. This function is kept for backward

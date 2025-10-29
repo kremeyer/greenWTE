@@ -8,17 +8,15 @@ try:
 except ImportError:
     from typing_extensions import Self
 
-import cupy as cp
-
-from . import nvtx_utils
+from . import nvtx_utils, xp
 from .base import Material, N_to_dT, SolverBase, dT_to_N_matmul
 from .io import GreenContainer
 
 
 class RTAWignerOperator:
-    r"""Wigner operator in the relaxation‑time approximation (RTA).
+    r"""Wigner operator in the relaxation-time approximation (RTA).
 
-    Builds the block‑diagonal Wigner operator :math:`\mathcal{L}(q; \omega, k)` for a single temporal frequency
+    Builds the block-diagonal Wigner operator :math:`\mathcal{L}(q; \omega, k)` for a single temporal frequency
     :math:`\omega` and spatial wavevector magnitude :math:`k`.
 
     Parameters
@@ -45,8 +43,8 @@ class RTAWignerOperator:
 
     def __init__(
         self,
-        omg_ft: cp.ndarray,
-        k_ft: cp.ndarray,
+        omg_ft: xp.ndarray,
+        k_ft: xp.ndarray,
         material: Material,
     ) -> None:
         """Initialize the factory with the given physical parameters."""
@@ -59,7 +57,7 @@ class RTAWignerOperator:
         self.dtyper = material.dtyper
         self.dtypec = material.dtypec
 
-    def __getitem__(self, iq: int) -> cp.ndarray:
+    def __getitem__(self, iq: int) -> xp.ndarray:
         """Return a single-q-point operator block.
 
         Parameters
@@ -100,33 +98,33 @@ class RTAWignerOperator:
             return
 
         with nvtx_utils.annotate("build WignerOperator", color="orange"):
-            self._op = cp.zeros((self.nq, self.nat3**2, self.nat3**2), dtype=self.dtypec)
-            I_small = cp.eye(self.nat3, dtype=self.dtyper)
-            I_big = cp.eye(self.nat3**2, dtype=self.dtypec)
-            OMG = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
-            GAM = cp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
+            self._op = xp.zeros((self.nq, self.nat3**2, self.nat3**2), dtype=self.dtypec)
+            I_small = xp.eye(self.nat3, dtype=self.dtyper)
+            I_big = xp.eye(self.nat3**2, dtype=self.dtypec)
+            OMG = xp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
+            GAM = xp.zeros((self.nat3, self.nat3), dtype=self.dtyper)
 
             for ii in range(self.nq):
-                cp.fill_diagonal(OMG, self.material.phonon_freq[ii])
-                cp.fill_diagonal(GAM, self.material.linewidth[ii])
+                xp.fill_diagonal(OMG, self.material.phonon_freq[ii])
+                xp.fill_diagonal(GAM, self.material.linewidth[ii])
 
                 gv_op = self.material.velocity_operator[ii]
 
-                # term1 = cp.kron(I_small, OMG) - cp.kron(OMG, I_small) - (omg_ft * I_big)
+                # term1 = xp.kron(I_small, OMG) - xp.kron(OMG, I_small) - (omg_ft * I_big)
                 term1 = (
-                    cp.einsum("ij,kl->ikjl", I_small, OMG).reshape(self.nat3**2, self.nat3**2)
-                    - cp.einsum("ij,kl->ikjl", OMG, I_small).reshape(self.nat3**2, self.nat3**2)
+                    xp.einsum("ij,kl->ikjl", I_small, OMG).reshape(self.nat3**2, self.nat3**2)
+                    - xp.einsum("ij,kl->ikjl", OMG, I_small).reshape(self.nat3**2, self.nat3**2)
                     - self.omg_ft * I_big
                 )
-                # term2 = (k_ft / 2) * (cp.kron(I_small, gv_op) + cp.kron(gv_op.T, I_small))
+                # term2 = (k_ft / 2) * (xp.kron(I_small, gv_op) + xp.kron(gv_op.T, I_small))
                 term2 = (self.k_ft / 2) * (
-                    cp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(self.nat3**2, self.nat3**2)
-                    + cp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(self.nat3**2, self.nat3**2)
+                    xp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(self.nat3**2, self.nat3**2)
+                    + xp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(self.nat3**2, self.nat3**2)
                 )
-                # term3 = 0.5 * (cp.kron(I_small, GAM) + cp.kron(GAM, I_small))
+                # term3 = 0.5 * (xp.kron(I_small, GAM) + xp.kron(GAM, I_small))
                 term3 = 0.5 * (
-                    cp.einsum("ij,kl->ikjl", I_small, GAM).reshape(self.nat3**2, self.nat3**2)
-                    + cp.einsum("ij,kl->ikjl", GAM, I_small).reshape(self.nat3**2, self.nat3**2)
+                    xp.einsum("ij,kl->ikjl", I_small, GAM).reshape(self.nat3**2, self.nat3**2)
+                    + xp.einsum("ij,kl->ikjl", GAM, I_small).reshape(self.nat3**2, self.nat3**2)
                 )
 
                 self._op[ii] = (1j * (term1 - term2)) + term3
@@ -151,12 +149,12 @@ class GreenOperatorBase(ABC):
         if self._green is None:
             raise RuntimeError("Green's operator not computed yet.")
 
-    def __getitem__(self, iq: int) -> cp.ndarray:
+    def __getitem__(self, iq: int) -> xp.ndarray:
         """Allow indexing to access the Green's function for a specific q-point."""
         self._require_ready()
         return self._green[iq]
 
-    def __matmul__(self, other: cp.ndarray) -> cp.ndarray:
+    def __matmul__(self, other: xp.ndarray) -> xp.ndarray:
         """Allow matrix multiplication with the Green's function."""
         self._require_ready()
         return self._green @ other
@@ -172,7 +170,7 @@ class GreenOperatorBase(ABC):
         return iter(self._green)
 
     @property
-    def __cuda_array_interface__(self) -> dict:
+    def __cuda_array_interface__(self) -> dict:  # pragma: no cover
         """Return the CUDA array interface for the Green's function."""
         self._require_ready()
         return self._green.__cuda_array_interface__
@@ -184,12 +182,12 @@ class GreenOperatorBase(ABC):
         return self._green.shape
 
     @property
-    def dtype(self) -> cp.dtype:
+    def dtype(self) -> xp.dtype:
         """Return the dtype of the Green's function."""
         self._require_ready()
         return self._green.dtype
 
-    def squeeze(self) -> cp.ndarray:
+    def squeeze(self) -> xp.ndarray:
         """Return the Green's function with singleton dimensions removed."""
         self._require_ready()
         return self._green.squeeze()
@@ -265,10 +263,10 @@ class RTAGreenOperator(GreenOperatorBase):
 
         self.wigner_operator.compute()  # will not recompute if already done
 
-        self._green = cp.zeros_like(self.wigner_operator._op, dtype=self.dtypec)
+        self._green = xp.zeros_like(self.wigner_operator._op, dtype=self.dtypec)
 
         with nvtx_utils.annotate("invert WignerOperator", color="red"):
-            self._green = cp.linalg.inv(self.wigner_operator._op)
+            self._green = xp.linalg.inv(self.wigner_operator._op)
 
         if clear_wigner:
             self.wigner_operator._op = None
@@ -342,7 +340,7 @@ class DiskGreenOperator(GreenOperatorBase):
             return
         # pull the Green's operator from disk
         arr = self._gc.get_bz_block(self.omg_ft, self.k_ft, atol=self._atol)
-        self._green = cp.ascontiguousarray(cp.asarray(arr, dtype=self.dtypec))
+        self._green = xp.ascontiguousarray(xp.asarray(arr, dtype=self.dtypec))
 
 
 class GreenWTESolver(SolverBase):
@@ -409,11 +407,11 @@ class GreenWTESolver(SolverBase):
 
     def __init__(
         self,
-        omg_ft_array: cp.ndarray,
-        k_ft: cp.ndarray,
+        omg_ft_array: xp.ndarray,
+        k_ft: xp.ndarray,
         material: Material,
         greens: list[RTAGreenOperator],
-        source: cp.ndarray,
+        source: xp.ndarray,
         source_type: str = "energy",
         dT_init: complex = 1.0 + 1.0j,
         max_iter: int = 100,
@@ -447,8 +445,8 @@ class GreenWTESolver(SolverBase):
         dT: complex,
         omg_ft: float,
         omg_idx: int,
-        sol_guess: cp.ndarray | None = None,
-    ) -> tuple[cp.ndarray, list]:
+        sol_guess: xp.ndarray | None = None,
+    ) -> tuple[xp.ndarray, list]:
         n = dT_to_N_matmul(
             dT=dT,
             material=self.material,
@@ -499,13 +497,13 @@ class GreenWTESolver(SolverBase):
                     omg_idx=i,
                     sol_guess=None,
                 )
-                n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
+                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / xp.linalg.norm(last_n)
                 theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
                 self.n_norms_list[i].append(n_step_norm)
             else:
                 n_step_norm = 0
                 theoretical_next_dT = 0
-                self.n_norms_list[i].append(cp.nan)
+                self.n_norms_list[i].append(xp.nan)
 
             if self.print_progress:
                 if self.verbose:
@@ -516,10 +514,10 @@ class GreenWTESolver(SolverBase):
                     f"k={self.k_ft:.2e} "
                     f"w={omg_ft:.2e} "
                     f"dT={self.dT[i]: .2e} "
-                    f"n_it={self.niter[i]:{int(cp.log10(self.max_iter)) + 1}d} "
-                    f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
+                    f"n_it={self.niter[i]:{int(xp.log10(self.max_iter)) + 1}d} "
+                    f"it_time={xp.mean(xp.array(self.iter_time_list[-1])):.2f} "
                     f"n_conv={n_step_norm:.1e} "
-                    f"dT_conv={cp.abs(self.dT[i] - theoretical_next_dT) / cp.abs(self.dT[i]):.1e} "
+                    f"dT_conv={xp.abs(self.dT[i] - theoretical_next_dT) / xp.abs(self.dT[i]):.1e} "
                     f"dT_next={theoretical_next_dT: .1e}"
                 )
 

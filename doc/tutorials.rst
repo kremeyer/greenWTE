@@ -137,7 +137,7 @@ And as expected we get the same result of 63 W/m/K:
 
 .. testoutput::
 
-    62.6+0.0j, 62.5+0.0j, 0.2-0.0j
+    62.6+0.0j, 62.5+0.0j, 0.2+0.0j
 
 Try it with the example data for CsPbBr\ :sub:`3` provided and see how the coherence contribution dominates the thermal conductivity in this material at 300K!
 
@@ -150,7 +150,7 @@ To verify the results we can plot the real and imaginary part of the thermal con
 .. plot::
     :caption: Real and imaginary part of the dynamical thermal conductivity of Silicon at 300K
 
-    import cupy as cp
+    from greenWTE import to_cpu, xp
     from greenWTE.base import Material
     from greenWTE.iterative import IterativeWTESolver
     from greenWTE.sources import source_term_gradT
@@ -158,7 +158,7 @@ To verify the results we can plot the real and imaginary part of the thermal con
     import matplotlib.pyplot as plt
 
     K_FT = 10 ** 2.5  # spatial frequency in rad/m
-    omegas = cp.logspace(7, 14, 20)  # temporal frequencies in rad/s
+    omegas = xp.logspace(7, 14, 20)  # temporal frequencies in rad/s
     material = Material.from_phono3py(SI_INPUT_PATH, temperature=300)
     source = source_term_gradT(
         K_FT,
@@ -181,9 +181,9 @@ To verify the results we can plot the real and imaginary part of the thermal con
 
     f, ax = plt.subplots()
 
-    ax.set_xlim(omegas[0].get(), omegas[-1].get())
-    ax.plot(omegas.get(), cp.real(solver.kappa_p).get(), "o-", label="$\Re(\kappa_\mathrm{P})$", mec="k")
-    ax.plot(omegas.get(), cp.imag(solver.kappa_p).get(), "o-", label="$\Im(\kappa_\mathrm{P})$", mec="k")
+    ax.set_xlim(to_cpu(omegas[0]), to_cpu(omegas[-1]))
+    ax.plot(to_cpu(omegas), to_cpu(xp.real(solver.kappa_p)), "o-", label="$\Re(\kappa_\mathrm{P})$", mec="k")
+    ax.plot(to_cpu(omegas), to_cpu(xp.imag(solver.kappa_p)), "o-", label="$\Im(\kappa_\mathrm{P})$", mec="k")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Temporal frequency (rad/s)")

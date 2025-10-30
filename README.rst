@@ -22,7 +22,7 @@ Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in So
     :target: https://github.com/kremeyer/greenWTE/actions/workflows/ci.yml?query=branch%3Amain
     :alt: CI status
 
-.. image:: https://codecov.io/github/kremeyer/greenWTE/branch/main/graph/badge.svg?token=3W1D1HOSW2 
+.. image:: https://codecov.io/github/kremeyer/greenWTE/branch/main/graph/badge.svg?token=3W1D1HOSW2
     :target: https://codecov.io/github/kremeyer/greenWTE
     :alt: Codecov status
 

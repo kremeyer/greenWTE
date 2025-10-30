@@ -8,7 +8,16 @@ description = "Solve the Wigner Transport Equation with a source term!"
 authors = [{ name = "Laurenz Kremeyer", email = "laurenz.kremeyer@mail.mcgill.ca" }]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
+readme = "README.rst"
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Intended Audience :: Science/Research",
+  "Environment :: GPU",
+  "License :: OSI Approved :: BSD License",
+]
 dynamic = ["version"]
+requires-python = ">=3.10"
 dependencies = [
   "numpy>=2",
   "scipy~=1.15",
@@ -16,12 +25,28 @@ dependencies = [
   "hdf5plugin",
 ]
 
+[project.urls]
+Homepage = "https://github.com/kremeyer/greenWTE"
+Documentation = "https://greenwte.readthedocs.io"
+Repository = "https://github.com/kremeyer/greenWTE"
+Changelog = "https://github.com/kremeyer/greenWTE/blob/main/CHANGELOG.md"
+Author = "https://scholar.google.com/citations?user=gKsq_08AAAAJ"
+
 [project.optional-dependencies]
 cuda12x = ["cupy-cuda12x>=12.0"]
 cuda13x = ["cupy-cuda13x>=13.0"]
 
 [tool.hatch]
 version.path = "greenWTE/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.github",
+  "/doc",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["greenWTE"]
 
 [tool.hatch.envs.test]
 default-args = ["greenWTE/tests"]
@@ -35,10 +60,10 @@ run = "export GREENWTE_BACKEND=CPU && pytest -n auto"
 run_gpu = "pytest"
 
 [tool.hatch.envs.docs]
-dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "matplotlib"]
+dependencies = ["typing_extensions", "sphinx", "sphinx-rtd-theme", "sphinx-argparse", "matplotlib"]
 
 [tool.hatch.envs.docs.scripts]
-build = "cd doc && make clean && make doctest && make html"
+build = "export GREENWTE_BACKEND=CPU && cd doc && make clean && make doctest && make html"
 serve = "python -m http.server -d doc/_build/html"
 
 [tool.ruff]

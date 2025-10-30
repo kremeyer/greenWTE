@@ -273,7 +273,7 @@ def estimate_initial_dT(
     if not history:
         return xp.asarray((1.0 + 1.0j))
 
-    omg_fts, dTs = zip(*sorted(history))
+    omg_fts, dTs = zip(*sorted(history), strict=True)
     omg_fts = xp.asarray(omg_fts, dtype=dtyper)
     dTs = xp.asarray(dTs, dtype=dtypec)
 

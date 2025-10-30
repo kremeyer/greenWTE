@@ -11,7 +11,7 @@ warnings.filterwarnings(
     "ignore", category=FutureWarning, message=r".*`rcond` parameter will change to the default of machine precision.*"
 )
 
-__version__ = "0.3.1"
+__version__ = "0.3.2rc2"
 
 
 FORCE_CPU = os.getenv("GREENWTE_BACKEND", "").lower() in ["cpu", "numpy"]

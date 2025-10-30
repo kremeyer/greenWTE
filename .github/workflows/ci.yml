@@ -47,23 +47,20 @@ jobs:
           python-version: ${{ matrix['python-version'] }}
           cache: 'pip'
 
-      - name: create venv & install
+      - name: Create venv & install
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install -e . pytest pytest-cov
 
-      - name: run pytest (skip GPU)
+      - name: Run pytest (skip GPU)
         env:
           COVERAGE_RCFILE: pyproject.toml
           COVERAGE_PROCESS_START: pyproject.toml
         run: |
           .venv/bin/pytest
 
-      - name: upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix['python-version'] }}
-          path: |
-            coverage.xml
-            .coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

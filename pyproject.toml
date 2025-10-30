@@ -10,10 +10,10 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
-  "numpy~=1.26",  # Numpy 2 is not yet compatible with bitshuffle
-  "scipy~=1.11",
+  "numpy>=2",
+  "scipy~=1.15",
   "h5py",
-  "bitshuffle",
+  "hdf5plugin",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +31,8 @@ python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 feature = ["cuda12x", "cuda13x"]
 
 [tool.hatch.envs.test.scripts]
-run = "pytest"
+run = "export GREENWTE_BACKEND=CPU && pytest -n auto"
+run_gpu = "pytest"
 
 [tool.hatch.envs.docs]
 dependencies = ["sphinx", "sphinx-rtd-theme", "sphinx-argparse", "matplotlib"]

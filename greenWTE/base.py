@@ -479,7 +479,7 @@ class SolverBase(ABC):
                     omg_idx=i,
                     sol_guess=None,
                 )
-                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / xp.linalg.norm(last_n)
+                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / (xp.linalg.norm(last_n) + 1e-300)
                 theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
                 self.n_norms_list[i].append(n_step_norm)
             else:
@@ -574,7 +574,7 @@ class SolverBase(ABC):
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
-                n_step_norm = xp.linalg.norm(n - n_prev) / xp.linalg.norm(n_prev)
+                n_step_norm = xp.linalg.norm(n - n_prev) / (xp.linalg.norm(n_prev) + 1e-300)
                 n_norms.append(n_step_norm)
 
             if converged:
@@ -652,7 +652,7 @@ class SolverBase(ABC):
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
-                n_step_norm = xp.linalg.norm(n - n_prev) / xp.linalg.norm(n_prev)
+                n_step_norm = xp.linalg.norm(n - n_prev) / (xp.linalg.norm(n_prev) + 1e-300)
                 n_norms.append(n_step_norm)
 
             if converged:
@@ -796,7 +796,7 @@ class SolverBase(ABC):
             dT_new = N_to_dT(n, self.material)
             dT_iterates.append(dT_new)
             if n_old is not None:
-                n_step_norm = xp.linalg.norm(n - n_old) / xp.linalg.norm(n_old)
+                n_step_norm = xp.linalg.norm(n - n_old) / (xp.linalg.norm(n_old) + 1e-300)
                 n_norms.append(n_step_norm)
 
             iter_times.append(time.time() - iter_start)
@@ -1292,6 +1292,7 @@ def _dT_to_N_iterative(
                 gmres_kwargs = {
                     "x0": guess,
                     "callback": gmres_callback,
+                    "callback_type": "pr_norm",
                     "atol": conv_thr_abs,
                     "M": xp.diag(1 / lhs.diagonal()),
                 }

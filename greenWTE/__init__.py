@@ -3,6 +3,8 @@
 import os
 import warnings
 
+import hdf5plugin
+
 # triggered when cupyx.scipy.sparse.linalg.gmres
 # invokes np.linalg.lstsq under the hood
 warnings.filterwarnings(
@@ -49,7 +51,10 @@ except ImportError:
 
     HAVE_GPU = False
 
+hdf5plugin.register("bshuf")  # ensure Bitshuffle filter is registered before import of h5py
+
 __all__ = [
+    "hdf5plugin",
     "xp",
     "xp_PchipInterpolator",
     "xp_gmres",

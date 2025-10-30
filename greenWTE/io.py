@@ -15,16 +15,15 @@ try:
 except ImportError:
     from typing_extensions import Self
 
-import bitshuffle.h5
 import h5py
 import numpy as np
 from scipy.constants import elementary_charge
 
 from greenWTE.base import SolverBase
 
-from . import to_cpu, xp
+from . import hdf5plugin, to_cpu, xp
 
-SCHEMA = "rta-greens/1"
+SCHEMA = "rta-greens/2"
 
 
 def _ensure(
@@ -250,8 +249,7 @@ class GreenContainer:
             maxshape=(None, None, self.nq, self.m, self.m),
             chunks=(1, 1, 1, self.B, self.B),
             dtype=self.dtype,
-            compression=bitshuffle.h5.H5FILTER,
-            compression_opts=(0, bitshuffle.h5.H5_COMPRESS_LZ4),
+            compression=hdf5plugin.Bitshuffle(nelems=0, cname="lz4"),
         )
         self.ds_mask = _ensure(
             self.f,

@@ -497,7 +497,7 @@ class GreenWTESolver(SolverBase):
                     omg_idx=i,
                     sol_guess=None,
                 )
-                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / xp.linalg.norm(last_n)
+                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / (xp.linalg.norm(last_n) + 1e-300)
                 theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
                 self.n_norms_list[i].append(n_step_norm)
             else:

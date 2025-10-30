@@ -4,7 +4,7 @@ This script builds relaxation-time approximation (RTA) **Wigner Green's operator
 for a given material, across a grid of temporal frequencies :math:`\omega` in rad/s, spatial frequencies
 :math:`k` in rad/m, and temperatures :math:`T` in K. Results are written to an HDF5 file per temperature using the
 :py:class:`~greenWTE.io.GreenContainer` layout. Each file stores the 5-D dataset ``green[Nw, Nk, nq, m, m]`` with
-:meth:`bitshuffle <bitshuffle.h5>` compression.
+:py:class:`hdf5plugin.Bitshuffle` compression.
 
 Typical use (log-spaced frequency grids)::
 

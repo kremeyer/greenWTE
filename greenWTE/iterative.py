@@ -12,8 +12,7 @@ See also :py:class:`~greenWTE.base.SolverBase` for shared solver infrastructure.
 
 from argparse import Namespace
 
-import cupy as cp
-
+from . import xp
 from .base import Material, SolverBase, dT_to_N_iterative
 
 
@@ -74,10 +73,10 @@ class IterativeWTESolver(SolverBase):
 
     def __init__(
         self,
-        omg_ft_array: cp.ndarray,
-        k_ft: cp.ndarray,
+        omg_ft_array: xp.ndarray,
+        k_ft: xp.ndarray,
         material: Material,
-        source: cp.ndarray,
+        source: xp.ndarray,
         source_type: str = "energy",
         dT_init: complex = 1.0 + 1.0j,
         max_iter: int = 100,
@@ -110,8 +109,8 @@ class IterativeWTESolver(SolverBase):
         dT: complex,
         omg_ft: float,
         omg_idx: int,
-        sol_guess: cp.ndarray = None,
-    ) -> tuple[cp.ndarray, list]:
+        sol_guess: xp.ndarray = None,
+    ) -> tuple[xp.ndarray, list]:
         return dT_to_N_iterative(
             dT=dT,
             omg_ft=omg_ft,

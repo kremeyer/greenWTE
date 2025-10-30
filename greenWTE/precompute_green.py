@@ -4,7 +4,7 @@ This script builds relaxation-time approximation (RTA) **Wigner Green's operator
 for a given material, across a grid of temporal frequencies :math:`\omega` in rad/s, spatial frequencies
 :math:`k` in rad/m, and temperatures :math:`T` in K. Results are written to an HDF5 file per temperature using the
 :py:class:`~greenWTE.io.GreenContainer` layout. Each file stores the 5-D dataset ``green[Nw, Nk, nq, m, m]`` with
-:meth:`bitshuffle <bitshuffle.h5>` compression.
+:py:class:`hdf5plugin.Bitshuffle` compression.
 
 Typical use (log-spaced frequency grids)::
 
@@ -27,8 +27,9 @@ import signal
 from argparse import ArgumentParser, Namespace
 from typing import Iterable
 
-import cupy as cp
 import numpy as np
+
+from . import xp
 
 
 def get_parser() -> ArgumentParser:
@@ -152,7 +153,7 @@ def request_stop(signal: int, frame) -> None:
 
     """
     global STOP
-    if not STOP:
+    if not STOP:  # pragma: no cover
         print(f"Signal {signal} received - finishing current write, flushing, and exiting...")
         STOP = True
     else:  # pragma: no cover
@@ -174,11 +175,11 @@ if __name__ == "__main__":  # pragma: no branch
     args = parse_arguments()
 
     if args.double_precision:
-        dtyper = cp.float64
-        dtypec = cp.complex128
+        dtyper = xp.float64
+        dtypec = xp.complex128
     else:
-        dtyper = cp.float32
-        dtypec = cp.complex64
+        dtyper = xp.float32
+        dtypec = xp.complex64
 
     direction_idx = {"x": 0, "y": 1, "z": 2}[args.direction]
 

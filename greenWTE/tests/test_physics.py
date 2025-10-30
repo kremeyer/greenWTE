@@ -3,10 +3,10 @@
 import warnings
 from os.path import join as pj
 
-import cupy as cp
 import h5py
 import pytest
 
+from greenWTE import HAVE_GPU, xp
 from greenWTE.base import Material
 from greenWTE.io import save_solver_result
 from greenWTE.iterative import IterativeWTESolver
@@ -44,7 +44,7 @@ def test_silicon_isotropy():
         )
 
         solver = IterativeWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -55,15 +55,15 @@ def test_silicon_isotropy():
         )
 
         solver.run()
-        kappas.append((cp.real(solver.kappa_p), cp.real(solver.kappa_c)))
+        kappas.append((xp.real(solver.kappa_p), xp.real(solver.kappa_c)))
 
-    kappas = cp.array(kappas)
-    cp.testing.assert_allclose(kappas[:, 0], cp.mean(kappas[:, 0]), rtol=0.01)
+    kappas = xp.array(kappas)
+    xp.testing.assert_allclose(kappas[:, 0], xp.mean(kappas[:, 0]), rtol=0.01)
 
 
 def test_high_frequency_roll_off():
     """Test that dT drops to zero at high frequencies."""
-    omegas = cp.array([0, 1e16, 1e300])
+    omegas = xp.array([0, 1e16, 1e300])
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
 
     source = 5e8 * source_term_full(material.heat_capacity)
@@ -79,12 +79,13 @@ def test_high_frequency_roll_off():
     )
 
     solver.run()
-    print(cp.abs(solver.dT), solver.dT)
-    assert cp.abs(solver.dT[0]) > 1
-    assert cp.abs(solver.dT[1]) < 1e-9
-    assert cp.abs(solver.dT[2]) < 1e-15
+    print(xp.abs(solver.dT), solver.dT)
+    assert xp.abs(solver.dT[0]) > 1
+    assert xp.abs(solver.dT[1]) < 1e-9
+    assert xp.abs(solver.dT[2]) < 1e-15
 
 
+@pytest.mark.skipif(not HAVE_GPU, reason="CSPbBr3 test requires GPU")
 def test_cspbbr3_anisotropy():
     """Test the anisotropy of the thermal conductivity in CsPbBr3."""
     kappas = []
@@ -101,7 +102,7 @@ def test_cspbbr3_anisotropy():
         )
 
         solver = IterativeWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -112,11 +113,11 @@ def test_cspbbr3_anisotropy():
         )
 
         solver.run()
-        kappas.append((cp.real(solver.kappa_p), cp.real(solver.kappa_c)))
+        kappas.append((xp.real(solver.kappa_p), xp.real(solver.kappa_c)))
 
-    kappas = cp.array(kappas)
-    assert not cp.allclose(kappas[:, 0], cp.mean(kappas[:, 0]), rtol=0.2)
-    assert not cp.allclose(kappas[:, 1], cp.mean(kappas[:, 1]), rtol=0.2)
+    kappas = xp.array(kappas)
+    assert not xp.allclose(kappas[:, 0], xp.mean(kappas[:, 0]), rtol=0.2)
+    assert not xp.allclose(kappas[:, 1], xp.mean(kappas[:, 1]), rtol=0.2)
 
 
 @pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
@@ -130,7 +131,7 @@ def test_dT_convergence_absolute(outer_solver, inner_solver):
     source = 5e8 * source_term_full(material.heat_capacity)
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -157,7 +158,7 @@ def test_dT_convergence_relative(outer_solver, inner_solver):
     source = 5e8 * source_term_full(material.heat_capacity)
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -177,7 +178,7 @@ def test_dT_convergence_relative(outer_solver, inner_solver):
 def test_diag_velocity_operator():
     """Test that there is no thermal conductivity from the coherences if the velocity operator is diagonal."""
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
-    offdiag_mask = ~cp.eye(material.velocity_operator.shape[1], dtype=cp.bool_)
+    offdiag_mask = ~xp.eye(material.velocity_operator.shape[1], dtype=xp.bool_)
     material.velocity_operator[:, offdiag_mask] = 0
 
     source = source_term_gradT(
@@ -190,7 +191,7 @@ def test_diag_velocity_operator():
     )
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -201,7 +202,7 @@ def test_diag_velocity_operator():
 
     solver.run()
 
-    cp.testing.assert_array_less(cp.real(solver.kappa_c), 1e-12)
+    xp.testing.assert_array_less(xp.real(solver.kappa_c), 1e-12)
 
 
 def test_output_file_dimensions(tmp_path):
@@ -224,7 +225,7 @@ def test_output_file_dimensions(tmp_path):
     nq, nat3 = material.phonon_freq.shape
 
     solver = IterativeWTESolver(
-        omg_ft_array=cp.array([0, 1e3, 1e6]),
+        omg_ft_array=xp.array([0, 1e3, 1e6]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,

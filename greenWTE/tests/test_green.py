@@ -2,9 +2,9 @@
 
 from os.path import join as pj
 
-import cupy as cp
 import pytest
 
+from greenWTE import HAVE_GPU, xp
 from greenWTE.base import Material
 from greenWTE.green import DiskGreenOperator, GreenWTESolver, RTAGreenOperator, RTAWignerOperator
 from greenWTE.io import GreenContainer
@@ -56,7 +56,7 @@ def test_rtagreenoperator_basic():
 
     rgo.compute()
     # test matmul
-    _ = rgo @ cp.empty((rgo.nq, rgo.nat3**2, rgo.nat3**2))
+    _ = rgo @ xp.empty((rgo.nq, rgo.nat3**2, rgo.nat3**2))
 
     # test iter
     for _ in rgo:
@@ -82,16 +82,16 @@ def test_rta_green_operator_consistency():
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE)
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
     rgo = RTAGreenOperator(rwo)
     rgo.compute(clear_wigner=False)
 
-    identity = cp.eye(rgo.nat3**2)
+    identity = xp.eye(rgo.nat3**2)
     for iq in range(len(rgo)):
-        assert cp.allclose(rwo[iq] @ rgo[iq], identity, atol=1e-12, rtol=1e-12)
+        assert xp.allclose(rwo[iq] @ rgo[iq], identity, atol=1e-12, rtol=1e-12)
 
 
 def test_solver_with_green_container(tmp_path):
@@ -108,7 +108,7 @@ def test_solver_with_green_container(tmp_path):
     )
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
@@ -122,7 +122,7 @@ def test_solver_with_green_container(tmp_path):
         dgo = DiskGreenOperator(gc, DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING, material)
 
         green_solver = GreenWTESolver(
-            omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+            omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
             k_ft=DEFAULT_THERMAL_GRATING,
             material=material,
             source=source,
@@ -132,11 +132,17 @@ def test_solver_with_green_container(tmp_path):
         green_solver.run()
 
 
-@pytest.mark.parametrize("material_path", [SI_INPUT_PATH, CSPBBR3_INPUT_PATH])
+@pytest.mark.parametrize(
+    "material_path",
+    [
+        pytest.param(SI_INPUT_PATH),
+        pytest.param(CSPBBR3_INPUT_PATH, marks=pytest.mark.skipif(not HAVE_GPU, reason="CSPbBr3 test requires GPU")),
+    ],
+)
 def test_green_vs_iterative_solver_gradient(material_path):
     """Test the Green's operator against an iterative solver and ensure that the Wigner distribution functions match."""
     material = Material.from_phono3py(
-        material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
+        material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=xp.float32, dtypec=xp.complex64
     )
 
     source = source_term_gradT(
@@ -149,7 +155,7 @@ def test_green_vs_iterative_solver_gradient(material_path):
     )
 
     iterative_solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -161,7 +167,7 @@ def test_green_vs_iterative_solver_gradient(material_path):
     iterative_solver.run()
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
@@ -169,7 +175,7 @@ def test_green_vs_iterative_solver_gradient(material_path):
     rgo.compute(clear_wigner=True)
 
     green_solver = GreenWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -179,25 +185,31 @@ def test_green_vs_iterative_solver_gradient(material_path):
     )
     green_solver.run()
 
-    cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, atol=2e-7, rtol=2e-7)
-    cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], atol=2e-7, rtol=2e-7)
+    xp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, atol=2e-7, rtol=2e-7)
+    xp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], atol=2e-7, rtol=2e-7)
 
 
 @pytest.mark.parametrize("outer_solver", ["root", "aitken", "plain"])
-@pytest.mark.parametrize("material_path", [SI_INPUT_PATH, CSPBBR3_INPUT_PATH])
+@pytest.mark.parametrize(
+    "material_path",
+    [
+        pytest.param(SI_INPUT_PATH),
+        pytest.param(CSPBBR3_INPUT_PATH, marks=pytest.mark.skipif(not HAVE_GPU, reason="CSPbBr3 test requires GPU")),
+    ],
+)
 def test_green_vs_iterative_energy(outer_solver, material_path):
     """Test the Green's operator against an iterative solver and ensure that the Wigner distribution functions match."""
     conv_thr_rel = 1e-4
     conv_thr_abs = 0
 
     material = Material.from_phono3py(
-        material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=cp.float32, dtypec=cp.complex64
+        material_path, DEFAULT_TEMPERATURE, dir_idx=0, dtyper=xp.float32, dtypec=xp.complex64
     )
 
     source = source_term_full(material.heat_capacity)
 
     iterative_solver = IterativeWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -211,7 +223,7 @@ def test_green_vs_iterative_energy(outer_solver, material_path):
     iterative_solver.run()
 
     rwo = RTAWignerOperator(
-        omg_ft=cp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
+        omg_ft=xp.array([DEFAULT_TEMPORAL_FREQUENCY]), k_ft=DEFAULT_THERMAL_GRATING, material=material
     )
     rwo.compute()
 
@@ -219,7 +231,7 @@ def test_green_vs_iterative_energy(outer_solver, material_path):
     rgo.compute(clear_wigner=True)
 
     green_solver = GreenWTESolver(
-        omg_ft_array=cp.array([DEFAULT_TEMPORAL_FREQUENCY]),
+        omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
         k_ft=DEFAULT_THERMAL_GRATING,
         material=material,
         source=source,
@@ -232,8 +244,8 @@ def test_green_vs_iterative_energy(outer_solver, material_path):
     green_solver.run()
 
     # add small atol here, because near-zero elements can have large relative errors
-    cp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, rtol=conv_thr_rel, atol=1e-7)
-    cp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], rtol=conv_thr_rel, atol=1e-7)
+    xp.testing.assert_allclose(iterative_solver.dT, green_solver.dT, rtol=conv_thr_rel, atol=1e-7)
+    xp.testing.assert_allclose(iterative_solver.n[0], green_solver.n[0], rtol=conv_thr_rel, atol=1e-7)
 
 
 def test_diskgreenoperator_attribute_caching():
@@ -241,7 +253,7 @@ def test_diskgreenoperator_attribute_caching():
     # bypass __init__
     dgo = object.__new__(DiskGreenOperator)
 
-    arb_val = cp.asarray([1.0, 2.0, 3.0])
+    arb_val = xp.asarray([1.0, 2.0, 3.0])
     dgo._green = arb_val
     dgo.compute()  # make sure this does not touch the set value
     assert dgo._green is arb_val

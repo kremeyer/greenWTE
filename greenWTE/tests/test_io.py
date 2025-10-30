@@ -4,12 +4,12 @@ import importlib
 import json
 from os.path import join as pj
 
-import cupy as cp
 import h5py
 import numpy as np
 import pytest
 
 import greenWTE.io as io_mod
+from greenWTE import xp
 from greenWTE.base import Material
 from greenWTE.green import RTAGreenOperator, RTAWignerOperator
 from greenWTE.io import GreenContainer
@@ -31,7 +31,7 @@ class _FakeCupyArray:
 def fake_cupy_and_no_bitshuffle(monkeypatch):
     """Replace cupy with a lightweight shim and disable bitshuffle usage inside _ensure_main."""
 
-    class FakeCP:
+    class FakeXP:
         class ndarray:  # distinct from np.ndarray, so isinstance(np.array, cp.ndarray) is False
             pass
 
@@ -55,7 +55,7 @@ def fake_cupy_and_no_bitshuffle(monkeypatch):
         def sum(x, axis=None):
             return np.sum(x, axis=axis)
 
-    monkeypatch.setattr(io_mod, "cp", FakeCP, raising=True)
+    monkeypatch.setattr(io_mod, "xp", FakeXP, raising=True)
 
     # patch _ensure_main to avoid bitshuffle filter
     def _ensure_main_no_bitshuffle(self):
@@ -141,7 +141,7 @@ def test__find_index_1d_found_and_notfound(tmp_path):
 def test_container_init_new_file_sets_attrs_and_meta(_empty_h5):
     """Test that the GreenContainer initializes correctly with a new file."""
     meta = {"a": 1}
-    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=3, dtype=io_mod.cp.complex128, meta=meta)
+    gc = io_mod.GreenContainer(str(_empty_h5), nat3=2, nq=3, dtype=io_mod.xp.complex128, meta=meta)
     try:
         assert gc.m == 4
         # root attrs exist and meta is JSON
@@ -153,7 +153,7 @@ def test_container_init_new_file_sets_attrs_and_meta(_empty_h5):
 
 def test_container_init_reads_nat3_nq_from_file(seeded_h5):
     """Test that the GreenContainer initializes correctly with an existing file."""
-    gc = io_mod.GreenContainer(str(seeded_h5), nat3=None, nq=None, dtype=io_mod.cp.complex128, read_only=False)
+    gc = io_mod.GreenContainer(str(seeded_h5), nat3=None, nq=None, dtype=io_mod.xp.complex128, read_only=False)
     try:
         assert gc.nat3 == 2 and gc.nq == 3 and gc.m == 4
     finally:
@@ -170,7 +170,7 @@ def test_container_init_dtype_mismatch_raises(tmp_path):
         f.attrs["m"] = 4
         f.attrs["dtype"] = "complex64"  # on-disk different
     with pytest.raises(TypeError):
-        io_mod.GreenContainer(str(p), nat3=None, nq=None, dtype=io_mod.cp.complex128)
+        io_mod.GreenContainer(str(p), nat3=None, nq=None, dtype=io_mod.xp.complex128)
 
 
 def test__ensure_main_early_return_and_zero_error(_empty_h5):
@@ -540,7 +540,7 @@ def test_green_container_io(tmp_path):
     with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
         retrieved = gc.get_bz_block(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING)
 
-    assert cp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
+    assert xp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
     assert retrieved.dtype == rgo.squeeze().dtype
 
     # check writing as individual q-point entries
@@ -551,5 +551,5 @@ def test_green_container_io(tmp_path):
     with GreenContainer(path=pj(tmp_path, "test-green.hdf5"), nat3=material.nat3, nq=material.nq) as gc:
         retrieved = gc.get_bz_block(DEFAULT_TEMPORAL_FREQUENCY, DEFAULT_THERMAL_GRATING)
 
-    assert cp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
+    assert xp.allclose(retrieved, rgo.squeeze(), atol=1e-12, rtol=1e-12)
     assert retrieved.dtype == rgo.squeeze().dtype

@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from greenWTE import __version__
+
 #
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
@@ -14,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 project = "greenWTE"
 copyright = "2025, Laurenz Kremeyer"
 author = "Laurenz Kremeyer"
-release = "0.1"
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

@@ -11,14 +11,11 @@ except ImportError:
     from typing_extensions import Self
 from typing import Sequence
 
-import cupy as cp
 import numpy as np
-from cupyx.scipy.interpolate import PchipInterpolator
-from cupyx.scipy.sparse.linalg import gmres
 from scipy.constants import hbar
 from scipy.optimize import root
 
-from . import nvtx_utils
+from . import HAVE_GPU, nvtx_utils, to_cpu, xp, xp_gmres, xp_PchipInterpolator
 
 
 class Material:
@@ -69,12 +66,12 @@ class Material:
     def __init__(
         self,
         temperature: float,
-        velocity_operator: cp.ndarray,
-        phonon_freq: cp.ndarray,
-        linewidth: cp.ndarray,
-        heat_capacity: cp.ndarray,
+        velocity_operator: xp.ndarray,
+        phonon_freq: xp.ndarray,
+        linewidth: xp.ndarray,
+        heat_capacity: xp.ndarray,
         volume: float,
-        qpoint: cp.ndarray | None = None,
+        qpoint: xp.ndarray | None = None,
         name: str | None = None,
     ) -> None:
         """Initialize the Material class with physical properties."""
@@ -98,8 +95,8 @@ class Material:
         temperature: float,
         dir_idx: int = 0,
         exclude_gamma: bool = True,
-        dtyper: cp.dtype = cp.float64,
-        dtypec: cp.dtype = cp.complex128,
+        dtyper: xp.dtype = xp.float64,
+        dtypec: xp.dtype = xp.complex128,
     ) -> Self:
         """Construct a :py:class:`~greenWTE.base.Material` from a :py:mod:`phono3py` HDF5 output.
 
@@ -244,7 +241,7 @@ class AitkenAccelerator:
 
 
 def estimate_initial_dT(
-    omg_ft: float, history: Sequence[tuple[float, complex]], dtyper=cp.float64, dtypec=cp.complex128
+    omg_ft: float, history: Sequence[tuple[float, complex]], dtyper=xp.float64, dtypec=xp.complex128
 ) -> complex:
     r"""Estimate the initial guess for :math:`\Delta T(\omega)`.
 
@@ -274,17 +271,18 @@ def estimate_initial_dT(
 
     """
     if not history:
-        return cp.asarray((1.0 + 1.0j))
+        return xp.asarray((1.0 + 1.0j))
 
-    omg_fts, dTs = zip(*sorted(history))
-    omg_fts = cp.asarray(omg_fts, dtype=dtyper)
-    dTs = cp.asarray(dTs, dtype=dtypec)
+    omg_fts, dTs = zip(*sorted(history), strict=True)
+    omg_fts = xp.asarray(omg_fts, dtype=dtyper)
+    dTs = xp.asarray(dTs, dtype=dtypec)
 
     if len(omg_fts) == 1:
         return dTs[0]
 
-    interp_func = PchipInterpolator(omg_fts, dTs, extrapolate=True)
-    dT_guess = interp_func(omg_ft)
+    interp_real = xp_PchipInterpolator(omg_fts, xp.real(dTs), extrapolate=True)
+    interp_imag = xp_PchipInterpolator(omg_fts, xp.imag(dTs), extrapolate=True)
+    dT_guess = interp_real(omg_ft) + 1j * interp_imag(omg_ft)
 
     return dT_guess
 
@@ -364,10 +362,10 @@ class SolverBase(ABC):
 
     def __init__(
         self,
-        omg_ft_array: cp.ndarray,
+        omg_ft_array: xp.ndarray,
         k_ft: float,
         material: Material,
-        source: cp.ndarray,
+        source: xp.ndarray,
         source_type: str = "energy",
         dT_init: complex = 1.0 + 1.0j,
         max_iter: int = 100,
@@ -378,7 +376,7 @@ class SolverBase(ABC):
         print_progress: bool = False,
     ) -> None:
         """Initialize SolverBase."""
-        self.omg_ft_array = cp.asarray(omg_ft_array)
+        self.omg_ft_array = xp.asarray(omg_ft_array)
         self.k_ft = k_ft
         self.material = material
         self.source = source
@@ -397,11 +395,11 @@ class SolverBase(ABC):
         self.nat3 = material.nat3
 
         self.history = []
-        self.dT = cp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
-        self.dT_init = cp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
+        self.dT = xp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
+        self.dT_init = xp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
         self.dT_init_user = dT_init
-        self.n = cp.zeros((self.omg_ft_array.shape[0], self.nq, self.nat3, self.nat3), dtype=self.dtypec)
-        self.niter = cp.zeros(self.omg_ft_array.shape[0], dtype=cp.int32)
+        self.n = xp.zeros((self.omg_ft_array.shape[0], self.nq, self.nat3, self.nat3), dtype=self.dtypec)
+        self.niter = xp.zeros(self.omg_ft_array.shape[0], dtype=xp.int32)
         self.iter_time_list = []
         self.dT_iterates_list = []
         self.n_norms_list = []
@@ -415,8 +413,8 @@ class SolverBase(ABC):
         dT: complex,
         omg_ft: float,
         omg_idx: int,
-        sol_guess: cp.ndarray | None = None,
-    ) -> tuple[cp.ndarray, list]:
+        sol_guess: xp.ndarray | None = None,
+    ) -> tuple[xp.ndarray, list]:
         """Map a temperature change to a Wigner distribution ``n``.
 
         Subclasses must implement this method.
@@ -437,8 +435,8 @@ class SolverBase(ABC):
 
         """
         r = dT - dT_new
-        r_abs = float(cp.abs(r).item())
-        scale = float(max(cp.abs(dT).item(), cp.abs(dT_new).item(), 1.0))
+        r_abs = float(xp.abs(r))
+        scale = float(max(xp.abs(dT), xp.abs(dT_new), 1.0))
         thresh = self.conv_thr_abs + self.conv_thr_rel * scale
         return r_abs <= thresh
 
@@ -481,13 +479,13 @@ class SolverBase(ABC):
                     omg_idx=i,
                     sol_guess=None,
                 )
-                n_step_norm = cp.linalg.norm(theoretical_next_n - last_n) / cp.linalg.norm(last_n)
+                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / (xp.linalg.norm(last_n) + 1e-300)
                 theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
                 self.n_norms_list[i].append(n_step_norm)
             else:
                 n_step_norm = 0
                 theoretical_next_dT = 0
-                self.n_norms_list[i].append(cp.nan)
+                self.n_norms_list[i].append(xp.nan)
 
             if self.print_progress:
                 if self.verbose:
@@ -498,10 +496,10 @@ class SolverBase(ABC):
                     f"k={self.k_ft:.2e} "
                     f"w={omg_ft:.2e} "
                     f"dT={self.dT[i]: .2e} "
-                    f"n_it={self.niter[i]:{int(cp.log10(self.max_iter)) + 1}d} "
-                    f"it_time={cp.mean(cp.array(self.iter_time_list[-1])):.2f} "
+                    f"n_it={self.niter[i]:{int(xp.log10(self.max_iter)) + 1}d} "
+                    f"it_time={xp.mean(xp.array(self.iter_time_list[-1])):.2f} "
                     f"n_conv={n_step_norm:.1e} "
-                    f"dT_conv={cp.abs(self.dT[i] - theoretical_next_dT) / cp.abs(self.dT[i]):.1e} "
+                    f"dT_conv={xp.abs(self.dT[i] - theoretical_next_dT) / xp.abs(self.dT[i]):.1e} "
                     f"dT_next={theoretical_next_dT: .1e}"
                 )
 
@@ -509,7 +507,7 @@ class SolverBase(ABC):
 
     def _run_solver_aitken(
         self, omg_idx: int, omg_ft: float
-    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
+    ) -> tuple[float, complex, complex, xp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using Aitken's delta-squared process for acceleration.
 
         Parameters
@@ -576,7 +574,7 @@ class SolverBase(ABC):
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
-                n_step_norm = cp.linalg.norm(n - n_prev) / cp.linalg.norm(n_prev)
+                n_step_norm = xp.linalg.norm(n - n_prev) / (xp.linalg.norm(n_prev) + 1e-300)
                 n_norms.append(n_step_norm)
 
             if converged:
@@ -587,7 +585,7 @@ class SolverBase(ABC):
 
     def _run_solver_plain(
         self, omg_idx: int, omg_ft: float
-    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
+    ) -> tuple[float, complex, complex, xp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using simple fixed-point iteration.
 
         Parameters
@@ -654,7 +652,7 @@ class SolverBase(ABC):
             iter_times.append(time.time() - iter_start)
 
             if n_prev is not None:
-                n_step_norm = cp.linalg.norm(n - n_prev) / cp.linalg.norm(n_prev)
+                n_step_norm = xp.linalg.norm(n - n_prev) / (xp.linalg.norm(n_prev) + 1e-300)
                 n_norms.append(n_step_norm)
 
             if converged:
@@ -665,7 +663,7 @@ class SolverBase(ABC):
 
     def _run_solver_none(
         self, omg_idx: int, omg_ft: float
-    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
+    ) -> tuple[float, complex, complex, xp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver without outer iterations, performing a single mapping from dT to n.
 
         Parameters
@@ -730,7 +728,7 @@ class SolverBase(ABC):
 
     def _run_solver_root(
         self, omg_idx: int, omg_ft: float
-    ) -> tuple[float, complex, complex, cp.ndarray, int, list[float], list[complex], list[float], list[float]]:
+    ) -> tuple[float, complex, complex, xp.ndarray, int, list[float], list[complex], list[float], list[float]]:
         """Run the WTE solver using SciPy's root-finding algorithm :py:mod:scipy.optimize.root`.
 
         Parameters
@@ -783,7 +781,7 @@ class SolverBase(ABC):
             # x is np.array([Re(dT), Im(dT)]) on CPU (necessary for scipy)
             nonlocal n, n_old, dT_iterates, gmres_residual, iter_times
             nonlocal last_eval_dT, last_eval_n, last_eval_dTnew
-            dT = cp.asarray(x[0] + 1j * x[1], dtype=self.material.dtypec)
+            dT = xp.asarray(x[0] + 1j * x[1], dtype=self.material.dtypec)
             iter_start = time.time()
             n_old = n
 
@@ -798,7 +796,7 @@ class SolverBase(ABC):
             dT_new = N_to_dT(n, self.material)
             dT_iterates.append(dT_new)
             if n_old is not None:
-                n_step_norm = cp.linalg.norm(n - n_old) / cp.linalg.norm(n_old)
+                n_step_norm = xp.linalg.norm(n - n_old) / (xp.linalg.norm(n_old) + 1e-300)
                 n_norms.append(n_step_norm)
 
             iter_times.append(time.time() - iter_start)
@@ -810,9 +808,9 @@ class SolverBase(ABC):
                 last_eval_dTnew = dT_new
                 return np.array([0.0, 0.0], dtype=self.material.dtyper)
 
-            scale = float(max(cp.abs(dT).item(), cp.abs(dT_new).item(), 1.0))
-            rR = float(cp.real(dT - dT_new).item()) / scale
-            rI = float(cp.imag(dT - dT_new).item()) / scale
+            scale = float(max(xp.abs(dT), xp.abs(dT_new), 1.0))
+            rR = float(xp.real(dT - dT_new)) / scale
+            rI = float(xp.imag(dT - dT_new)) / scale
 
             last_eval_dT = (x[0], x[1])
             last_eval_n = n
@@ -820,7 +818,7 @@ class SolverBase(ABC):
 
             return np.array([rR, rI], dtype=self.material.dtyper)
 
-        x0 = np.array([cp.real(dT_init).item(), cp.imag(dT_init).item()], dtype=self.material.dtyper)
+        x0 = np.array([to_cpu(xp.real(dT_init)), to_cpu(xp.imag(dT_init))], dtype=self.material.dtyper)
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -831,12 +829,12 @@ class SolverBase(ABC):
                 options={"xtol": self.conv_thr_rel, "maxfev": self.max_iter + 2},
             )
 
-        dT = cp.asarray(sol.x[0] + 1j * sol.x[1], dtype=self.material.dtypec)
+        dT = xp.asarray(sol.x[0] + 1j * sol.x[1], dtype=self.material.dtypec)
 
         # Reuse the last expensive evaluation if it matches the final x
         if last_eval_dT is not None and np.allclose(
             np.array(last_eval_dT),
-            np.array([float(cp.real(dT).item()), float(cp.imag(dT).item())]),
+            np.array([float(xp.real(dT)), float(xp.imag(dT))]),
             rtol=1e-12,
             atol=0.0,
         ):
@@ -863,23 +861,23 @@ class SolverBase(ABC):
         the lists are padded with NaNs.
         """
         max_len = max(len(times) for times in self.iter_time_list)
-        iter_times_array = cp.full((len(self.iter_time_list), max_len), np.nan, dtype=self.material.dtyper)
+        iter_times_array = xp.full((len(self.iter_time_list), max_len), np.nan, dtype=self.material.dtyper)
         for i, times in enumerate(self.iter_time_list):
-            times = cp.asarray(times, dtype=self.material.dtyper)
+            times = xp.asarray(times, dtype=self.material.dtyper)
             iter_times_array[i, : len(times)] = times
         self.iter_time = iter_times_array
 
         max_len = max(len(dTs) for dTs in self.dT_iterates_list)
-        dT_iterates_array = cp.full((len(self.dT_iterates_list), max_len), np.nan, dtype=self.material.dtypec)
+        dT_iterates_array = xp.full((len(self.dT_iterates_list), max_len), np.nan, dtype=self.material.dtypec)
         for i, dTs in enumerate(self.dT_iterates_list):
-            dTs = cp.asarray(dTs, dtype=self.material.dtypec)
+            dTs = xp.asarray(dTs, dtype=self.material.dtypec)
             dT_iterates_array[i, : len(dTs)] = dTs
         self.dT_iterates = dT_iterates_array
 
         max_len = max(len(n_convs) for n_convs in self.n_norms_list)
-        n_norms_array = cp.full((len(self.n_norms_list), max_len), np.nan, dtype=self.material.dtyper)
+        n_norms_array = xp.full((len(self.n_norms_list), max_len), np.nan, dtype=self.material.dtyper)
         for i, n_convs in enumerate(self.n_norms_list):
-            n_convs = cp.asarray(n_convs, dtype=self.material.dtyper)
+            n_convs = xp.asarray(n_convs, dtype=self.material.dtyper)
             n_norms_array[i, : len(n_convs)] = n_convs
         self.n_norms = n_norms_array
 
@@ -887,11 +885,11 @@ class SolverBase(ABC):
         max_outer = max(len(outer) for outer in self.gmres_residual_list)
         max_q = max(len(q_list) for outer in self.gmres_residual_list for q_list in outer)
         max_gmres = max(len(res_list) for outer in self.gmres_residual_list for q_list in outer for res_list in q_list)
-        gmres_residual_array = cp.full((n_omega, max_outer, max_q, max_gmres), np.nan, dtype=self.material.dtyper)
+        gmres_residual_array = xp.full((n_omega, max_outer, max_q, max_gmres), np.nan, dtype=self.material.dtyper)
         for i, outer in enumerate(self.gmres_residual_list):
             for j, q_list in enumerate(outer):
                 for k, res_list in enumerate(q_list):
-                    res_list = cp.asarray(res_list, dtype=self.material.dtyper)
+                    res_list = xp.asarray(res_list, dtype=self.material.dtyper)
                     gmres_residual_array[i, j, k, : len(res_list)] = res_list
         self.gmres_residual = gmres_residual_array
 
@@ -915,7 +913,7 @@ class SolverBase(ABC):
         self._flux = np.zeros(self.n.shape, dtype=self.material.dtypec)
         for i, _ in enumerate(self.omg_ft_array):
             n = self.n[i]
-            self._flux[i] = flux_from_n(n, self.material).get()
+            self._flux[i] = to_cpu(flux_from_n(n, self.material))
         return self._flux
 
     @property
@@ -988,8 +986,8 @@ class SolverBase(ABC):
 
 
 def _safe_divide(
-    num: cp.ndarray | np.ndarray, den: cp.ndarray | np.ndarray, eps: float = 1e-300
-) -> cp.ndarray | np.ndarray:
+    num: xp.ndarray | np.ndarray, den: xp.ndarray | np.ndarray, eps: float = 1e-300
+) -> xp.ndarray | np.ndarray:
     """Element-wise division with broadcasting and protection against zeros.
 
     Parameters
@@ -1005,32 +1003,30 @@ def _safe_divide(
         The elementwise division result.
 
     """
-    if isinstance(num, cp.ndarray) and isinstance(den, cp.ndarray):
-        xp = cp
+    if hasattr(num, "__cuda_array_interface__") and hasattr(den, "__cuda_array_interface__"):  # pragma: no cover
+        _xp = xp
     else:
-        if isinstance(num, cp.ndarray):
-            num = num.get()
-        if isinstance(den, cp.ndarray):
-            den = den.get()
-        xp = np
+        num = to_cpu(num)
+        den = to_cpu(den)
+        _xp = np
 
-    num = xp.asarray(num)
-    den = xp.asarray(den)
+    num = _xp.asarray(num)
+    den = _xp.asarray(den)
 
-    out_shape = xp.broadcast(num, den).shape
-    num_b = xp.broadcast_to(num, out_shape)
-    den_b = xp.broadcast_to(den, out_shape)
+    out_shape = _xp.broadcast(num, den).shape
+    num_b = _xp.broadcast_to(num, out_shape)
+    den_b = _xp.broadcast_to(den, out_shape)
 
-    out_dtype = xp.result_type(num_b, den_b)
+    out_dtype = _xp.result_type(num_b, den_b)
 
-    mask = xp.abs(den_b) > eps
-    out = xp.zeros(out_shape, dtype=out_dtype)
+    mask = _xp.abs(den_b) > eps
+    out = _xp.zeros(out_shape, dtype=out_dtype)
     out[mask] = num_b[mask] / den_b[mask]
 
     return out
 
 
-def N_to_dT(n: cp.ndarray, material: Material) -> complex:
+def N_to_dT(n: xp.ndarray, material: Material) -> complex:
     r"""Compute :math:`\Delta T` from a Wigner distribution.
 
     Parameters
@@ -1053,7 +1049,7 @@ def N_to_dT(n: cp.ndarray, material: Material) -> complex:
     return _N_to_dT(n, material.phonon_freq, material.heat_capacity, material.volume)
 
 
-def _N_to_dT(n: cp.ndarray, phonon_freq: cp.ndarray, heat_capacity: cp.ndarray, volume: float) -> complex:
+def _N_to_dT(n: xp.ndarray, phonon_freq: xp.ndarray, heat_capacity: xp.ndarray, volume: float) -> complex:
     r"""Compute :math:`\Delta T` from a Wigner distribution.
 
     Parameters
@@ -1080,9 +1076,9 @@ def _N_to_dT(n: cp.ndarray, phonon_freq: cp.ndarray, heat_capacity: cp.ndarray, 
     nq = n.shape[0]
     dT = 0
     for i in range(nq):
-        dT += cp.sum(phonon_freq[i] * cp.diag(n[i]))
+        dT += xp.sum(phonon_freq[i] * xp.diag(n[i]))
     dT *= hbar / volume / nq
-    dT /= cp.sum(heat_capacity)
+    dT /= xp.sum(heat_capacity)
     return dT
 
 
@@ -1091,14 +1087,14 @@ def dT_to_N_iterative(
     omg_ft: float,
     k_ft: float,
     material: Material,
-    source: cp.ndarray,
+    source: xp.ndarray,
     source_type="energy",
     sol_guess=None,
     solver="gmres",
     conv_thr_rel=1e-12,
     conv_thr_abs=0,
     progress=False,
-) -> tuple[cp.ndarray, list]:
+) -> tuple[xp.ndarray, list]:
     r"""Fixed-point mapping :math:`\Delta T \mapsto n` using iterative linear solves.
 
     This function solves the linear system of equations that arises from the WTE for the wigner distribution function n
@@ -1169,21 +1165,21 @@ def _dT_to_N_iterative(
     dT: complex,
     omg_ft: float,
     k_ft: float,
-    phonon_freq: cp.ndarray,
-    linewidth: cp.ndarray,
-    velocity_operator: cp.ndarray,
-    heat_capacity: cp.ndarray,
+    phonon_freq: xp.ndarray,
+    linewidth: xp.ndarray,
+    velocity_operator: xp.ndarray,
+    heat_capacity: xp.ndarray,
     volume: float,
-    source: cp.ndarray,
+    source: xp.ndarray,
     source_type="energy",
     sol_guess=None,
-    dtyper=cp.float64,
-    dtypec=cp.complex128,
+    dtyper=xp.float64,
+    dtypec=xp.complex128,
     solver="gmres",
     conv_thr_rel=1e-12,
     conv_thr_abs=0,
     progress=False,
-) -> tuple[cp.ndarray, list]:
+) -> tuple[xp.ndarray, list]:
     r"""Fixed-point mapping :math:`\Delta T \mapsto n` using iterative linear solves.
 
     This function solves the linear system of equations that arises from the WTE for the wigner distribution function n
@@ -1240,49 +1236,49 @@ def _dT_to_N_iterative(
     with nvtx_utils.annotate("init dT_to_N", color="blue"):
         nq = phonon_freq.shape[0]
         nat3 = phonon_freq.shape[1]
-        n = cp.zeros((nq, nat3, nat3), dtype=dtypec)
+        n = xp.zeros((nq, nat3, nat3), dtype=dtypec)
 
-        I_small = cp.eye(nat3, dtype=dtyper)
-        I_big = cp.eye(nat3**2, dtype=dtypec)
-        OMG = cp.zeros((nat3, nat3), dtype=dtyper)
-        GAM = cp.zeros((nat3, nat3), dtype=dtyper)
+        I_small = xp.eye(nat3, dtype=dtyper)
+        I_big = xp.eye(nat3**2, dtype=dtypec)
+        OMG = xp.zeros((nat3, nat3), dtype=dtyper)
+        GAM = xp.zeros((nat3, nat3), dtype=dtyper)
 
         outer_residuals = []
 
     for ii in range(nq):
         with nvtx_utils.annotate("init q", color="purple"):
-            cp.fill_diagonal(OMG, phonon_freq[ii])
-            cp.fill_diagonal(GAM, linewidth[ii])
+            xp.fill_diagonal(OMG, phonon_freq[ii])
+            xp.fill_diagonal(GAM, linewidth[ii])
 
             gv_op = velocity_operator[ii]
 
-            # term1 = cp.kron(I, OMG) - cp.kron(OMG, I) - (omg_ft * I_big)
+            # term1 = xp.kron(I, OMG) - xp.kron(OMG, I) - (omg_ft * I_big)
             term1 = (
-                cp.einsum("ij,kl->ikjl", I_small, OMG).reshape(nat3**2, nat3**2)
-                - cp.einsum("ij,kl->ikjl", OMG, I_small).reshape(nat3**2, nat3**2)
+                xp.einsum("ij,kl->ikjl", I_small, OMG).reshape(nat3**2, nat3**2)
+                - xp.einsum("ij,kl->ikjl", OMG, I_small).reshape(nat3**2, nat3**2)
                 - omg_ft * I_big
             )
-            # term2 = (k_ft / 2) * (cp.kron(I, gv_op) + cp.kron(gv_op.T, I))
+            # term2 = (k_ft / 2) * (xp.kron(I, gv_op) + xp.kron(gv_op.T, I))
             term2 = (k_ft / 2) * (
-                cp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(nat3**2, nat3**2)
-                + cp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(nat3**2, nat3**2)
+                xp.einsum("ij,kl->ikjl", I_small, gv_op).reshape(nat3**2, nat3**2)
+                + xp.einsum("ij,kl->ikjl", gv_op.T, I_small).reshape(nat3**2, nat3**2)
             )
-            # term3 = 0.5 * (cp.kron(I, GAM) + cp.kron(GAM, I))
+            # term3 = 0.5 * (xp.kron(I, GAM) + xp.kron(GAM, I))
             term3 = 0.5 * (
-                cp.einsum("ij,kl->ikjl", I_small, GAM).reshape(nat3**2, nat3**2)
-                + cp.einsum("ij,kl->ikjl", GAM, I_small).reshape(nat3**2, nat3**2)
+                xp.einsum("ij,kl->ikjl", I_small, GAM).reshape(nat3**2, nat3**2)
+                + xp.einsum("ij,kl->ikjl", GAM, I_small).reshape(nat3**2, nat3**2)
             )
 
             lhs = (1j * (term1 - term2)) + term3
 
-            nbar_deltat = volume * nq / hbar / phonon_freq[ii] * heat_capacity[ii] * cp.array(dT, dtype=dtypec)
+            nbar_deltat = volume * nq / hbar / phonon_freq[ii] * heat_capacity[ii] * xp.array(dT, dtype=dtypec)
             if source_type == "energy":
-                rhs = cp.copy(source[ii])
+                rhs = xp.copy(source[ii])
             elif source_type == "gradient":
-                rhs = (cp.array(dT, dtype=dtypec) * source[ii]).copy()
+                rhs = (xp.array(dT, dtype=dtypec) * source[ii]).copy()
             else:
                 raise ValueError(f"Unknown source type: {source_type}")
-            cp.fill_diagonal(rhs, cp.diag(rhs) + linewidth[ii] * nbar_deltat)
+            xp.fill_diagonal(rhs, xp.diag(rhs) + linewidth[ii] * nbar_deltat)
             rhs = rhs.flatten(order="F")
 
             residuals = []
@@ -1292,20 +1288,29 @@ def _dT_to_N_iterative(
 
         if solver == "gmres":
             with nvtx_utils.annotate("gmres", color="green"):
-                guess = sol_guess[ii].flatten(order="F") if sol_guess is not None else cp.zeros_like(rhs, dtype=dtypec)
-                sol, info = gmres(
+                guess = sol_guess[ii].flatten(order="F") if sol_guess is not None else xp.zeros_like(rhs, dtype=dtypec)
+                gmres_kwargs = {
+                    "x0": guess,
+                    "callback": gmres_callback,
+                    "callback_type": "pr_norm",
+                    "atol": conv_thr_abs,
+                    "M": xp.diag(1 / lhs.diagonal()),
+                }
+                if HAVE_GPU:  # pragma: no cover
+                    # cupyx GMRES uses 'tol' for relative tolerance
+                    gmres_kwargs["tol"] = conv_thr_rel
+                else:
+                    # scipy GMRES uses 'rtol' for relative tolerance
+                    gmres_kwargs["rtol"] = conv_thr_rel
+                sol, info = xp_gmres(
                     lhs,
                     rhs,
-                    x0=guess,
-                    callback=gmres_callback,
-                    tol=conv_thr_rel,
-                    atol=conv_thr_abs,
-                    M=cp.diag(1 / lhs.diagonal()),
+                    **gmres_kwargs,
                 )
             if info != 0:
                 print(f"GMRES failed to converge: {info}")
         elif solver == "cgesv":
-            sol = cp.linalg.solve(lhs, rhs)
+            sol = xp.linalg.solve(lhs, rhs)
         else:
             raise ValueError(f"Unknown inner solver: {solver}")
         outer_residuals.append(residuals)
@@ -1319,10 +1324,10 @@ def _dT_to_N_iterative(
 def dT_to_N_matmul(
     dT: complex,
     material: Material,
-    green: cp.ndarray,
-    source: cp.ndarray,
+    green: xp.ndarray,
+    source: xp.ndarray,
     source_type: str = "energy",
-) -> cp.ndarray:
+) -> xp.ndarray:
     r"""Fixed-point mapping :math:`\Delta T \mapsto n` using precomputed Green operators.
 
     This variant assumes a Green operator has been precomputed and can be applied via batched matrix-matrix products.
@@ -1354,18 +1359,18 @@ def dT_to_N_matmul(
     .. code-block:: python
 
         nq, nat3 = material.nq, material.nat3
-        n = cp.zeros((nq, nat3, nat3), dtype=material.dtypec)
+        n = xp.zeros((nq, nat3, nat3), dtype=material.dtypec)
         for iq in range(nq):
             nbar_deltat = (
                 material.volume * nq / hbar
                 / material.phonon_freq[iq]
                 * material.heat_capacity[iq]
-                * cp.array(dT, dtype=material.dtypec)
+                * xp.array(dT, dtype=material.dtypec)
             )
-            rhs = cp.copy(source[iq])
-            cp.fill_diagonal(
+            rhs = xp.copy(source[iq])
+            xp.fill_diagonal(
                 rhs,
-                cp.diag(source[iq]) + material.linewidth[iq] * nbar_deltat
+                xp.diag(source[iq]) + material.linewidth[iq] * nbar_deltat
             )
             n[iq] = (green[iq] @ rhs.flatten(order="F")).reshape(nat3, nat3, order="F")
         return n
@@ -1378,17 +1383,17 @@ def dT_to_N_matmul(
         nq, nat3 = material.nq, material.nat3
         m = nat3**2
 
-        green = cp.asarray(green)
-        green = cp.ascontiguousarray(green).reshape(nq, m, m)
+        green = xp.asarray(green)
+        green = xp.ascontiguousarray(green).reshape(nq, m, m)
         if source_type == "energy":
-            rhs = cp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
+            rhs = xp.ascontiguousarray(source).reshape(nq, nat3, nat3).copy()
         elif source_type == "gradient":
-            rhs = (cp.array(dT, dtype=material.dtypec) * cp.ascontiguousarray(source).reshape(nq, nat3, nat3)).copy()
+            rhs = (xp.array(dT, dtype=material.dtypec) * xp.ascontiguousarray(source).reshape(nq, nat3, nat3)).copy()
         else:
             raise ValueError(f"Unknown source type: {source_type}")
         prefac = material.volume * nq / hbar * material.heat_capacity / material.phonon_freq * dT
 
-        i = cp.arange(nat3)
+        i = xp.arange(nat3)
         rhs[:, i, i] += material.linewidth * prefac
 
         rhs_flat = rhs.reshape(nq, m, order="F")
@@ -1397,7 +1402,7 @@ def dT_to_N_matmul(
     return n_flat.reshape(nq, nat3, nat3, order="F")
 
 
-def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:
+def flux_from_n(n: xp.ndarray, material: Material) -> xp.ndarray:
     """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
     It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
@@ -1424,7 +1429,7 @@ def flux_from_n(n: cp.ndarray, material: Material) -> cp.ndarray:
     return _flux_from_n(n, material.velocity_operator, material.phonon_freq, material.volume)
 
 
-def _flux_from_n(n: cp.ndarray, velocity_operator: cp.ndarray, phonon_freq: cp.ndarray, volume: float) -> cp.ndarray:
+def _flux_from_n(n: xp.ndarray, velocity_operator: xp.ndarray, phonon_freq: xp.ndarray, volume: float) -> xp.ndarray:
     """Energy flux tensor J computed from :py:attr:`n` and the velocity operator.
 
     It corresponds to Equation (42) in `Phys. Rev. X 12, 041011`_.
@@ -1453,7 +1458,7 @@ def _flux_from_n(n: cp.ndarray, velocity_operator: cp.ndarray, phonon_freq: cp.n
 
     """
     freq_sum = phonon_freq[:, :, None] + phonon_freq[:, None, :]
-    flux = freq_sum * velocity_operator * cp.transpose(n, axes=(0, 2, 1))
+    flux = freq_sum * velocity_operator * xp.transpose(n, axes=(0, 2, 1))
     flux *= hbar / 2 / volume / n.shape[0]
     return flux
 
@@ -1468,17 +1473,17 @@ def dT_bte_prb(omg_ft, k_ft, phonon_freq, linewidth, group_velocity, heat_capaci
     heat_capacity = heat_capacity.flatten()
     group_velocity = group_velocity.reshape(nq * nat3)
     heat = heat.flatten()
-    weight = cp.repeat(weight, nat3).flatten()
+    weight = xp.repeat(weight, nat3).flatten()
     p = heat
 
     okv = omg_ft + (group_velocity * k_ft)
     A_inv = 1 / (linewidth + 1j * okv)
     Dc = okv * heat_capacity
-    Ap = cp.dot(A_inv, p)
-    ADc = cp.dot(A_inv, Dc * weight)
+    Ap = xp.dot(A_inv, p)
+    ADc = xp.dot(A_inv, Dc * weight)
     num = Ap
     den = 1j * ADc
-    dT = cp.sum(num) / cp.sum(den)
+    dT = xp.sum(num) / xp.sum(den)
     return dT
 
 
@@ -1497,14 +1502,14 @@ def dT_bte_from_wte(
     heat_capacity = heat_capacity.flatten()
     group_velocity = group_velocity.reshape(nq * nat3)
     heat = heat.flatten()
-    weight = cp.repeat(weight, nat3).flatten()
+    weight = xp.repeat(weight, nat3).flatten()
     p = heat
 
     okv = omg_ft + (group_velocity * k_ft)
     giwkv = linewidth - 1j * okv
 
-    num = cp.sum(hbar * phonon_freq / volume / nq * p / giwkv)
-    den = cp.sum(heat_capacity) - cp.sum(linewidth * heat_capacity / giwkv)
+    num = xp.sum(hbar * phonon_freq / volume / nq * p / giwkv)
+    den = xp.sum(heat_capacity) - xp.sum(linewidth * heat_capacity / giwkv)
     dT = num / den
     return dT
 

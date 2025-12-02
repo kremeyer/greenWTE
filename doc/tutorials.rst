@@ -1,7 +1,7 @@
 Tutorials
 =========
 
-This section contains tutorials on how to use the GreenWTE package for different applications.
+This section contains tutorials on how to use the greenWTE package for different applications.
 
 Input Data
 ----------

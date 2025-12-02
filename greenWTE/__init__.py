@@ -11,7 +11,7 @@ warnings.filterwarnings(
     "ignore", category=FutureWarning, message=r".*`rcond` parameter will change to the default of machine precision.*"
 )
 
-__version__ = "0.3.2rc3"
+__version__ = "1.0.0"
 
 
 FORCE_CPU = os.getenv("GREENWTE_BACKEND", "").lower() in ["cpu", "numpy"]
@@ -44,7 +44,7 @@ try:  # pragma: no cover
 
     HAVE_GPU = True
 
-except ImportError:
+except ImportError:  # pragma: no cover
     import numpy as xp
     from scipy.interpolate import PchipInterpolator as xp_PchipInterpolator
     from scipy.sparse.linalg import gmres as xp_gmres

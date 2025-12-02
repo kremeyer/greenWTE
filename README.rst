@@ -10,7 +10,7 @@ high frequency regimes. Beyond that it can be used to study the response of mate
 Derived from the Wigner formulation of quantum mechanics, the WTE describes heat transport in terms of particlelike
 and wavelike conduction mechanisms. The full and very detailed derivation can be found in the work by Simoncelli,
 Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in Solids" [Phys. Rev. X 12 (2022)]
-<WTE_paper>`_.
+<WTE_paper_>`_.
 
 .. _WTE_paper: https://journals.aps.org/prx/abstract/10.1103/PhysRevX.12.041011
 
@@ -26,8 +26,11 @@ Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in So
     :target: https://codecov.io/github/kremeyer/greenWTE
     :alt: Codecov status
 
+.. image:: https://img.shields.io/pypi/pyversions/greenWTE
+   :alt: PyPI - Python Version
 
-- The full documentation including installation instruction, tutorials and API reference is hosted on `Read the Docs`_.
+
+- The full documentation including installation instructions, tutorials and API reference is hosted on `Read the Docs`_.
 - Releases are available on `PyPI`_ and can be installed via ``pip install greenWTE[cuda12x,cuda13x]``.
 - The source code is available on `GitHub`_.
 

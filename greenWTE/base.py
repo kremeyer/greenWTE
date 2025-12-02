@@ -1299,7 +1299,7 @@ def _dT_to_N_iterative(
                 if HAVE_GPU:  # pragma: no cover
                     # cupyx GMRES uses 'tol' for relative tolerance
                     gmres_kwargs["tol"] = conv_thr_rel
-                else:
+                else:  # pragma: no cover
                     # scipy GMRES uses 'rtol' for relative tolerance
                     gmres_kwargs["rtol"] = conv_thr_rel
                 sol, info = xp_gmres(

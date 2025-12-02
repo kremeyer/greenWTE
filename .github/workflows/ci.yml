@@ -23,6 +23,7 @@ jobs:
           extra_args: --all-files
 
   tests:
+    needs: pre-commit
     runs-on: ubuntu-latest
     env:
       OMP_NUM_THREADS: "1"

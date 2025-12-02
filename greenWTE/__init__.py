@@ -44,7 +44,7 @@ try:  # pragma: no cover
 
     HAVE_GPU = True
 
-except ImportError:
+except ImportError:  # pragma: no cover
     import numpy as xp
     from scipy.interpolate import PchipInterpolator as xp_PchipInterpolator
     from scipy.sparse.linalg import gmres as xp_gmres

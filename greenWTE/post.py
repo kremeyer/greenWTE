@@ -153,12 +153,11 @@ def interpolate_onto_path(
         smooth_kwargs = {"window_length": 21, "polyorder": 1}
     n_segs = np.zeros(len(qpath) - 1)
     for i in range(len(qpath) - 1):
-        n_segs[i] = int(np.linalg.norm(qpath[i + 1] - qpath[i]) * n)
+        n_segs[i] = np.linalg.norm(qpath[i + 1] - qpath[i]) * n
     n_segs /= np.sum(n_segs) / n
     n_segs = np.round(n_segs).astype(int)
     n_segs[n_segs < 1] = 1
     qpath_idxs = np.insert(np.cumsum(n_segs), 0, 0)
-
     qpath_interp = []
     for i in range(len(qpath) - 1):
         seg = np.linspace(qpath[i], qpath[i + 1], n_segs[i] + 1)

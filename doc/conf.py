@@ -1,4 +1,5 @@
 """Configuration file for the Sphinx documentation builder."""
+
 import os
 
 os.environ.setdefault("GREENWTE_ENV", "CPU")  # no GPU available for doc builds

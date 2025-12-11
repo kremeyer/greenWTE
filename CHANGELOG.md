@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+### [Unreleased]
+
+- docs: read the docs integration
+- CI: automatic releases to Github in addition to PyPI
+
 # [1.0.0] - 2025-12-01
 
 ### Added

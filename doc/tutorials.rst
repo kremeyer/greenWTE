@@ -186,11 +186,19 @@ To verify the results we can plot the real and imaginary part of the thermal con
     ax.plot(to_cpu(omegas), to_cpu(xp.imag(solver.kappa_p)), "o-", label="$\Im(\kappa_\mathrm{P})$", mec="k")
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Temporal frequency (rad/s)")
-    ax.set_ylabel("Thermal conductivity (W/mK)")
+    ax.set_xlabel("temporal frequency [rad/s]")
+    ax.set_ylabel("thermal conductivity [W/mK]")
     ax.legend()
 
     f.tight_layout()
 
 We can see that the real part of the thermal conductivity decreases with increasing frequency, while the imaginary part first increases and then decreases again.
 The phase lag between the heat flux and the applied temperature gradient is captured by the imaginary part of the thermal conductivity.
+
+This short tutorial should give you a good starting point to use the greenWTE package for your own calculations. You can find more input data for practicing in
+the `test` folder of the greenWTE repository after running the tests for the first time. Included are data for CsPbBr\ :sub:`3` in addition to the Silicon data 
+used in these tutorials. Note that the grid for the dataset is not converged, but will give the right trends for many applications. An idea of more sophisticated 
+applications of greenWTE is given in the arXiv preprint `"Transition from Population to Coherence-dominated Non-diffusive Thermal Transport" [arXiv:2512.13616
+(2025)] <WTE_showcase_>`_. The calculations fully rely on scripts similar to the ones shown in these tutorials.
+
+.. _WTE_showcase_: https://arxiv.org/abs/2512.13616

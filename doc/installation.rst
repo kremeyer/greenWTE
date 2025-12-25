@@ -36,7 +36,7 @@ Replacing ``{12,13}`` with your desired CUDA version.
 Testing
 -------
 To run the tests we clone the repository and set up a virtual environment.
-After that we install the dependencies and run the tests::
+After that we install the dependencies and run the tests using pytest:
 
 .. code-block:: bash
 

@@ -1,17 +1,20 @@
 .. BEGIN-INTRO
 
-greenWTE - Solve the Wigner Transport Equation with a source term!
-==================================================================
+greenWTE - Frquency-domain solver for the phonon Wiger Transport Equation with arbitrary heating using Green's functions
+========================================================================================================================
 
 greenWTE is a Python package to solve the Wigner Transport Equation (WTE) in spatial and temporal Fourier space
 for arbitrary source terms. This allows to compute thermal conductivities from bulk to nanoscale, from static to
 high frequency regimes. Beyond that it can be used to study the response of materials to arbitrary heat sources.
+A showcase of the capabilities of greenWTE can be found in the arXiv preprint `"Transition from Population to
+Coherence-dominated Non-diffusive Thermal Transport" [arXiv:2512.13616 (2025)] <WTE_showcase_>`_.
 
 Derived from the Wigner formulation of quantum mechanics, the WTE describes heat transport in terms of particlelike
 and wavelike conduction mechanisms. The full and very detailed derivation can be found in the work by Simoncelli,
 Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in Solids" [Phys. Rev. X 12 (2022)]
 <WTE_paper_>`_.
 
+.. _WTE_showcase: https://arxiv.org/abs/2512.13616
 .. _WTE_paper: https://journals.aps.org/prx/abstract/10.1103/PhysRevX.12.041011
 
 .. END-INTRO
@@ -26,8 +29,8 @@ Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in So
     :target: https://codecov.io/github/kremeyer/greenWTE
     :alt: Codecov status
 
-.. image:: https://img.shields.io/pypi/pyversions/greenWTE
-   :alt: PyPI - Python Version
+.. image:: https://img.shields.io/pypi/v/greenWTE
+   :alt: PyPI - Version
 
 
 - The full documentation including installation instructions, tutorials and API reference is hosted on `Read the Docs`_.

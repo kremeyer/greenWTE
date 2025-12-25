@@ -39,9 +39,15 @@ The following code snippet shows how to read the data from a phono3py HDF file::
 
     material = Material.from_phono3py("kappa-m191919.hdf5", temperature=300)
 
-For sake of following these tutorials you can use the Silicon data provided for testing.
-Note that the 5x5x5 q-point mesh used in the tests is not sufficient to obtain converged results!
-The data can be downloaded by running the tests for the first time and will appear in the `test` folder.
+For sake of following these tutorials you can use the Silicon and CsPbBr\ :sub:`3` data provided for testing.
+Note that the 5x5x5 and 4x4x3 q-point meshes used in the tests are not sufficient to obtain converged results!
+The data can be downloaded by running the tests for the first time and will appear in the `test` folder. You can
+create symlinks to the files to be able to easily access them from your working directory with:
+
+.. code-block:: bash
+
+    ln -sf "$(python -c 'import importlib.resources as r; print(r.files("greenWTE.tests").joinpath("Si-kappa-m555.hdf5"))')" .
+    ln -sf "$(python -c 'import importlib.resources as r; print(r.files("greenWTE.tests").joinpath("CsPbBr3-kappa-m443.hdf5"))')" .
 
 Static thermal conductivity in bulk
 -----------------------------------
@@ -59,7 +65,8 @@ To compute the static thermal conductivity using the CLI we can run the followin
 
     python3 -m greenWTE.solve_iter Si-kappa-m555.hdf5 static_kappa.h5 -k 2.5 -w -300 -t 300 -os none -s gradT
 
-This will compute the thermal conductivity for a spatial frequency of 2.5 rad/m at a temperature of 300 K at a frequency of 1e-300 Hz (i.e. static).
+This will compute the thermal conductivity for a spatial frequency of 2.5 rad/m at a temperature of 300 K at a frequency of 1e-300 Hz (i.e. static)
+using a temperature gradient as the source term, which does not require and outer solver.
 The results will be saved in the file `static_kappa.h5` and the consolue output should look like::
 
     frequency                 κ_xx               κ_xx_P               κ_xx_C     |κ_xx|   |κ_xx_P|   |κ_xx_C|
@@ -73,7 +80,7 @@ The results will be saved in the file `static_kappa.h5` and the consolue output 
 
         import os, sys, subprocess, tempfile, pathlib
         from greenWTE.tests.defaults import SI_INPUT_PATH
-        PATH = str(SI_INPUT_PATH)       # provided by doctest_global_setup
+        SIPATH = str(SI_INPUT_PATH)       # provided by doctest_global_setup
         TMPDIR = pathlib.Path(tempfile.mkdtemp())
         OUT = TMPDIR / "static_kappa.h5"
 
@@ -82,7 +89,7 @@ The results will be saved in the file `static_kappa.h5` and the consolue output 
         # Run the CLI as a module so we use the same interpreter/env as Sphinx
         cmd = [
             sys.executable, "-m", "greenWTE.solve_iter",
-            PATH, str(OUT),
+            SIPATH, str(OUT),
             "-k", "2.5", "-w", "-300", "-t", "300", "-os", "none", "-s", "gradT",
         ]
         res = subprocess.run(cmd, text=True, capture_output=True, check=True)
@@ -97,11 +104,56 @@ The results will be saved in the file `static_kappa.h5` and the consolue output 
         OUT_EXISTS True
 
 We can see that the total thermal conductivity is only 63 W/m/K, which is far from the experimental value, because of the very coarse q-point mesh.
-However, the fact that the population contribution is much larger than the coherence contribution is already correctly captured.
+However, the fact that the population contribution is much larger than the coherence contribution is already correctly captured. Let's see what happens
+when we do the same thing for CsPbBr\ :sub:`3`! Running the following command:
+
+.. code-block:: bash
+
+    python3 -m greenWTE.solve_iter CsPbBr3-kappa-m443.hdf5 static_kappa.h5 -k 2.5 -w -300 -t 300 -os none -s gradT
+
+we now get a different picture::
+
+    frequency                 κ_xx               κ_xx_P               κ_xx_C     |κ_xx|   |κ_xx_P|   |κ_xx_C|
+    -----------------------------------------------------------------------------------------------------------
+    1.00e-300   3.13e-01+2.23e-12j   1.03e-01+1.91e-12j   2.10e-01+3.19e-13j   3.13e-01   1.03e-01   2.10e-01
+    -----------------------------------------------------------------------------------------------------------
+
+The imaginary parts are again very small, but now the coherence contribution is about twice as large as the population contribution! This shows that in
+materials with strong anharmonicity and complex crystal structures the coherence effects can dominate the thermal transport even at room temperature.
+
+.. only:: builder_doctest
+
+    .. testsetup:: cli
+
+        import os, sys, subprocess, tempfile, pathlib
+        from greenWTE.tests.defaults import CSPBBR3_INPUT_PATH
+        CPBPATH = str(CSPBBR3_INPUT_PATH)       # provided by doctest_global_setup
+        TMPDIR = pathlib.Path(tempfile.mkdtemp())
+        OUT = TMPDIR / "static_kappa.h5"
+
+    .. testcode:: cli
+
+        # Run the CLI as a module so we use the same interpreter/env as Sphinx
+        cmd = [
+            sys.executable, "-m", "greenWTE.solve_iter",
+            CPBPATH, str(OUT),
+            "-k", "2.5", "-w", "-300", "-t", "300", "-os", "none", "-s", "gradT",
+        ]
+        res = subprocess.run(cmd, text=True, capture_output=True, check=True)
+        print("PROGRESS", "[1/1] k=3.16e+02 w=1.00e-300 dT= 1.00e+00+1.00e+00j n_it=1" in res.stdout)
+        print("KAPPA_VALUES_GOOD", "3.13e-01" in res.stdout and "1.03e-01" in res.stdout and "2.10e-01" in res.stdout)
+        print("OUT_EXISTS", os.path.exists(OUT))
+
+    .. testoutput:: cli
+
+        PROGRESS True
+        KAPPA_VALUES_GOOD True
+        OUT_EXISTS True
+
 There is a lot more data saved in the output file which is described in :func:`~greenWTE.io.save_solver_result`.
 
 Scripted interface
-^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
 To compute the same result using the scripted interface we can use the following code snippet:
 
 .. testcode::
@@ -145,7 +197,7 @@ Dynamical thermal conductivity in bulk
 --------------------------------------
 When using iterative solver we will stick to the scripted interface from now on, but the CLI can be used in the same way.
 The code snippet from above can be easily adapted to compute the dynamical thermal conductivity by providing an array of temporal frequencies instead of just the static case.
-To verify the results we can plot the real and imaginary part of the thermal conductivity said frequency range.
+To verify the results we can plot the real and imaginary part of the thermal conductivity said frequency range. Assuming you have matplotlib installed, you can run the following code:
 
 .. plot::
     :caption: Real and imaginary part of the dynamical thermal conductivity of Silicon at 300K
@@ -191,14 +243,13 @@ To verify the results we can plot the real and imaginary part of the thermal con
     ax.legend()
 
     f.tight_layout()
+    # plt.show()
 
 We can see that the real part of the thermal conductivity decreases with increasing frequency, while the imaginary part first increases and then decreases again.
-The phase lag between the heat flux and the applied temperature gradient is captured by the imaginary part of the thermal conductivity.
+The phase lag between the heat flux and the applied temperature gradient is captured by the imaginary part of the thermal conductivity. Try this for CsPbBr\ :sub:`3`
+as well and see how the population contributions are suppressed even more strongly at higher frequencies compared to the coherence contributions!
 
-This short tutorial should give you a good starting point to use the greenWTE package for your own calculations. You can find more input data for practicing in
-the `test` folder of the greenWTE repository after running the tests for the first time. Included are data for CsPbBr\ :sub:`3` in addition to the Silicon data 
-used in these tutorials. Note that the grid for the dataset is not converged, but will give the right trends for many applications. An idea of more sophisticated 
-applications of greenWTE is given in the arXiv preprint `"Transition from Population to Coherence-dominated Non-diffusive Thermal Transport" [arXiv:2512.13616
-(2025)] <WTE_showcase_>`_. The calculations fully rely on scripts similar to the ones shown in these tutorials.
-
-.. _WTE_showcase_: https://arxiv.org/abs/2512.13616
+This short tutorial should give you a good starting point to use the greenWTE package for your own calculations. Note that the grid for the dataset is not converged,
+but will give the right trends for many applications. An idea of more sophisticated  applications of greenWTE is given in the arXiv preprint `"Transition from
+Population to Coherence-dominated Non-diffusive Thermal Transport" [arXiv:2512.13616 (2025)] <https://arxiv.org/abs/2512.13616>`_. The calculations fully rely on scripts similar to the
+ones shown in these tutorials.

@@ -14,7 +14,7 @@ and wavelike conduction mechanisms. The full and very detailed derivation can be
 Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in Solids" [Phys. Rev. X 12 (2022)]
 <WTE_paper_>`_.
 
-.. _WTE_showcase_: https://arxiv.org/abs/2512.13616
+.. _WTE_showcase: https://arxiv.org/abs/2512.13616
 .. _WTE_paper: https://journals.aps.org/prx/abstract/10.1103/PhysRevX.12.041011
 
 .. END-INTRO

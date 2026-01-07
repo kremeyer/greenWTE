@@ -4,8 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+### Added
+
 - docs: read the docs integration
 - CI: automatic releases to Github in addition to PyPI
+
+### Fixed
+
+- `GreenContainer` now accepts CuPy scalars when indexing/appending omega/k datasets, avoiding conversion errors
 
 # [1.0.0] - 2025-12-01
 

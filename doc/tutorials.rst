@@ -188,8 +188,9 @@ To compute the same result using the scripted interface we can use the following
 And as expected we get the same result of 63 W/m/K:
 
 .. testoutput::
+    :options: +ELLIPSIS
 
-    62.6+0.0j, 62.5+0.0j, 0.2+0.0j
+    62.6...0.0j, 62.5...0.0j, 0.2...0.0j
 
 Try it with the example data for CsPbBr\ :sub:`3` provided and see how the coherence contribution dominates the thermal conductivity in this material at 300K!
 
@@ -248,6 +249,104 @@ To verify the results we can plot the real and imaginary part of the thermal con
 We can see that the real part of the thermal conductivity decreases with increasing frequency, while the imaginary part first increases and then decreases again.
 The phase lag between the heat flux and the applied temperature gradient is captured by the imaginary part of the thermal conductivity. Try this for CsPbBr\ :sub:`3`
 as well and see how the population contributions are suppressed even more strongly at higher frequencies compared to the coherence contributions!
+
+Explicit Green’s-function workflow (save + reuse)
+-------------------------------------------------
+The implicit tutorials above solve the WTE by applying the Wigner operator :math:`\mathcal{L}` inside an iterative
+linear solver. An alternative is to *explicitly* build and invert :math:`\mathcal{L}` once to obtain the Green operator
+:math:`\mathcal{G} = \mathcal{L}^{-1}`.
+This explicit workflow is especially useful when you want to **reuse** the Green operator for multiple source terms.
+
+The pieces from greenWTE we need are:
+
+* :class:`~greenWTE.green.RTAWignerOperator` assembles :math:`\mathcal{L}(q;\omega,k)` (RTA approximation)
+* :class:`~greenWTE.green.RTAGreenOperator` inverts it to obtain :math:`\mathcal{G}(q;\omega,k)`
+* :class:`~greenWTE.io.GreenContainer` stores Green blocks in an HDF5 container on disk
+* :class:`~greenWTE.green.DiskGreenOperator` lazily loads the stored Green block so the solver can use it
+* :class:`~greenWTE.green.GreenWTESolver` applies :math:`\mathcal{G}` to the source term (no inner iterative solve)
+
+Example: compute, save, reload, solve
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The script below reproduces the static Silicon example, but explicitly constructs the Green operator, saves it to disk,
+reloads it, and then solves the WTE using the disk-backed Green operator.
+
+.. testcode::
+
+    import os
+    import tempfile
+
+    from greenWTE import xp
+    from greenWTE.base import Material
+    from greenWTE.green import (
+        GreenWTESolver,
+        RTAGreenOperator,
+        RTAWignerOperator,
+        DiskGreenOperator,
+    )
+    from greenWTE.io import GreenContainer
+    from greenWTE.sources import source_term_gradT
+    from greenWTE.tests.defaults import SI_INPUT_PATH
+
+    K_FT = 10 ** 2.5  # spatial frequency in rad/m
+    omegas = xp.array([0.0])  # static case
+
+    material = Material.from_phono3py(SI_INPUT_PATH, temperature=300)
+    source = source_term_gradT(
+        K_FT,
+        material.velocity_operator,
+        material.phonon_freq,
+        material.linewidth,
+        material.heat_capacity,
+        material.volume,
+    )
+
+    wigner = RTAWignerOperator(omg_ft=float(omegas[0]), k_ft=K_FT, material=material)
+    green = RTAGreenOperator(wigner)
+    green.compute()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        green_path = os.path.join(tmp, "Si-green-T300.hdf5")
+
+        # Save Green's function to disk
+        with GreenContainer(
+            path=green_path,
+            nat3=material.nat3,
+            nq=material.nq,
+            meta={"temperature": 300},
+        ) as gc:
+            gc.put_bz_block(omegas[0], K_FT, data=green)
+
+        # Load Green's function from disk
+        green_container = GreenContainer(path=green_path, read_only=True)
+        green_disk = DiskGreenOperator(
+            green_container,
+            omg_ft=float(omegas[0]),
+            k_ft=K_FT,
+            material=material,
+        )
+
+        # Solve WTE using the loaded Green's function
+        solver = GreenWTESolver(
+            omegas,
+            K_FT,
+            material=material,
+            greens=[green_disk],
+            source=source,
+            source_type="gradient",
+            outer_solver="none",
+        )
+        solver.run()
+
+        print(f"{solver.kappa[0]:.1f}, {solver.kappa_p[0]:.1f}, {solver.kappa_c[0]:.1f}")
+
+And voila, we get the same result as before:
+
+.. testoutput::
+    :options: +ELLIPSIS
+
+    62.6...0.0j, 62.5...0.0j, 0.2...0.0j
+
+This functionality is also exposed in the CLI via :mod:`~greenWTE.precompute_green` and :mod:`~greenWTE.solve_green`, which are documented in the :doc:`cli-arguments` section.
 
 This short tutorial should give you a good starting point to use the greenWTE package for your own calculations. Note that the grid for the dataset is not converged,
 but will give the right trends for many applications. An idea of more sophisticated  applications of greenWTE is given in the arXiv preprint `"Transition from

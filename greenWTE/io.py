@@ -87,7 +87,7 @@ def _find_or_append_1d(dset, value: float, atol: float = 0.0):
         The index of the matching or newly appended value.
 
     """
-    val = float(np.asarray(value))
+    val = _scalar_to_float(value)
     data = dset[...]
     for i, v in enumerate(data):
         if np.allclose(v, val, atol=atol):
@@ -116,12 +116,29 @@ def _find_index_1d(dset, value: float, atol: float = 0.0):
         Index if found; ``-1`` otherwise.
 
     """
-    val = float(value)
+    val = _scalar_to_float(value)
     data = dset[...]
     for i, v in enumerate(data):
         if np.allclose(v, val, atol=atol):
             return i
     return -1  # Not found
+
+
+def _scalar_to_float(x) -> float:
+    """Convert Python/NumPy/CuPy scalar or size-1 array to float."""
+    if isinstance(x, (int, float, np.generic)):
+        return float(x)
+    if hasattr(x, "item"):
+        try:
+            return float(x.item())
+        except (TypeError, ValueError):
+            pass
+    if hasattr(x, "get"):
+        x = x.get()
+    a = np.asarray(x)
+    if a.size != 1:
+        raise TypeError("Input is not a scalar.")
+    return float(a.item())
 
 
 @runtime_checkable

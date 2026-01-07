@@ -106,6 +106,21 @@ def seeded_h5(tmp_path):
     return path
 
 
+def test__scalar_to_float():
+    """Test the scalar to float utility function."""
+    assert io_mod._scalar_to_float(3) == 3.0
+    assert io_mod._scalar_to_float(2.5) == 2.5
+    assert io_mod._scalar_to_float(np.array([1.5])) == 1.5
+    assert io_mod._scalar_to_float(io_mod.xp.array([4.2])) == 4.2
+    assert io_mod._scalar_to_float(_FakeCupyArray(7.3)) == 7.3
+
+    with pytest.raises(TypeError):
+        io_mod._scalar_to_float(np.array([1.0, 2.0]))  # not scalar
+
+    with pytest.raises(ValueError):
+        io_mod._scalar_to_float("not a number")  # invalid type
+
+
 def test__ensure_existing_dataset(tmp_path):
     """Test that _ensure does not overwrite existing datasets."""
     p = tmp_path / "t.h5"

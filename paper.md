@@ -83,7 +83,7 @@ The second approach solves the linear system $\mathcal{L}\,\tilde{\mathbf{N}} = 
 This avoids the expensive computation of the full Green's function, but requires one to solve the system from scratch for each source term.
 The output of a greenWTE calculation is the Wigner distribution $\tilde{\mathbf{N}}\!\left(\mathbf{k},\omega,\mathbf{q}\right)$ and derived integral quantities such as the heat flux and the thermal conductivity.
 
-Possible source terms can be tailored to model different experimental heating conditions spatially like Gaussian or ring-like heating profiles [@Varghese2023A;Jeong2021Transient].
+Possible source terms can be tailored to model different experimental heating conditions spatially like Gaussian or ring-like heating profiles [@Varghese2023A;@Jeong2021Transient].
 Further the energy can be selectively injected into specific regions of the Brillouin zone and different phonon modes.
 Electron-phonon and phonon-phonon coupling calculations can be used to construct physically realistic source terms that are created by ultrafast laser radiation [@Tong2021Toward].
 

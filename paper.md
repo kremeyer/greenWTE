@@ -97,7 +97,7 @@ While it is in principle possible to run the code on a CPU, a GPU is highly reco
 
 # Research Impact Statement
 
-An outline of the research impact of greenWTE is provided in (@kremeyer2025transition), where we study the transition from population to coherence-dominated non-diffusive thermal transport in low thermal conductivity materials.
+An outline of the research impact of greenWTE is provided in @kremeyer2025transition, where we study the transition from population to coherence-dominated non-diffusive thermal transport in low thermal conductivity materials.
 Beyond that, the possibility to model pump-probe experiments by choosing source terms that model the non-equilibrium states created by ultrafast laser pulses will allow for a better interpretation of experimental results and a deeper understanding of microscopic thermal transport phenomena at short time and length scales.
 A real-time response function can be obtained by Fourier transforming the frequency-domain results and a direct comparison to time-domain experiments can be made.
 

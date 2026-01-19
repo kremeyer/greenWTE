@@ -7,6 +7,7 @@
     :maxdepth: 1
 
     self
+    statement_of_need
     installation
     tutorials
     cli-arguments

@@ -1,7 +1,7 @@
 .. BEGIN-INTRO
 
-greenWTE - Frquency-domain solver for the phonon Wiger Transport Equation with arbitrary heating using Green's functions
-========================================================================================================================
+greenWTE - Frequency-domain solver for the phonon Wigner Transport Equation with arbitrary heating using Green's functions
+==========================================================================================================================
 
 greenWTE is a Python package to solve the Wigner Transport Equation (WTE) in spatial and temporal Fourier space
 for arbitrary source terms. This allows to compute thermal conductivities from bulk to nanoscale, from static to

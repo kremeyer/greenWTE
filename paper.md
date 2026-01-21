@@ -33,7 +33,7 @@ bibliography: paper.bib
 # Summary
 
 Heat transport in solids is usually described in a phenomenological way via Fourier's law.
-However, at small time and length scales, a microscopic description is needed.
+However, at small time and length scales in low thermal conductivity materials, a microscopic description is needed.
 This is traditionally done by invoking the phonon Boltzmann Transport equation (BTE) [@ziman2001electrons], which has been successful in describing transport in high thermal conductivity materials.
 Recently, a generalization of the BTE, the Wigner Transport Equation, was developed to be able to microscopically describe transport in low thermal conductivity materials by taking into account not only phonon scattering processes but also phonon tunnelling processes, so-called coherences  [@simoncelli2022wigner].
 We present a Python package that solves the Wigner Transport Equation (WTE) in spatial and temporal Fourier space for arbitrary source terms, thereby enabling the study of heat transport at small space and time scales.
@@ -47,7 +47,7 @@ Additionally, there exist closed-source implementations that solve the BTE in sp
 Thus, we present a solver that fills the gap and supports microscopic thermal transport calculations in the WTE framework beyond the static limit.
 Specifically, the solver is able to capture size- and frequency-effects, including non-diffusive effects, by allowing the user to choose arbitrary source terms.
 By solving the WTE in spatial and temporal Fourier space, a bridge to common ultrafast and spatially patterned heating experiments is built.
-In particular, the frequency-domain Green's function formulation naturally connects to ultrafast pump-probe experiments, where the heating is instantaneous and the subsequent thermal response is measured as a function of delay time [@kremeyer2024ultrafast].
+In particular, the frequency-domain Green's function formulation naturally connects to ultrafast pump-probe experiments, where the heating is quasi-instantaneous and the subsequent thermal response is measured as a function of delay time [@kremeyer2024ultrafast].
 Spatially periodic temperature gratings used in transient thermal grating experiments are directly modelled by our approach as well [@ding2022observation;@kremeyer2024ultrafast].
 The approach presented here is easily generalizable and can be applied to arbitrary experimental and device geometries.
 

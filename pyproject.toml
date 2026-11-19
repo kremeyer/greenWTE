@@ -33,8 +33,12 @@ Changelog = "https://github.com/kremeyer/greenWTE/blob/main/CHANGELOG.md"
 Author = "https://scholar.google.com/citations?user=gKsq_08AAAAJ"
 
 [project.optional-dependencies]
-cuda12x = ["cupy-cuda12x>=12.0"]
-cuda13x = ["cupy-cuda13x>=13.0"]
+# CuPy including the CUDA libraries from PyPI (only the NVIDIA driver is needed on the system)
+cuda12x = ["cupy-cuda12x[ctk]>=14"]
+cuda13x = ["cupy-cuda13x[ctk]>=14"]
+# CuPy only, using a CUDA toolkit already present on the system (e.g. HPC environment modules)
+cuda12x-system = ["cupy-cuda12x>=14"]
+cuda13x-system = ["cupy-cuda13x>=14"]
 docs = [
   "typing_extensions",
   "sphinx",
@@ -60,7 +64,7 @@ default-args = ["greenWTE/tests"]
 
 [[tool.hatch.envs.test.matrix]]
 python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
-feature = ["cuda12x", "cuda13x"]
+feature = ["cuda12x", "cuda13x", "cuda12x-system", "cuda13x-system"]
 
 [tool.hatch.envs.test.scripts]
 run = "export GREENWTE_BACKEND=CPU && pytest -n auto"

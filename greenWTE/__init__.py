@@ -43,11 +43,17 @@ try:  # pragma: no cover
     from cupyx.scipy.interpolate import PchipInterpolator as xp_PchipInterpolator
     from cupyx.scipy.sparse.linalg import gmres as xp_gmres
 
+    # CuPy can be imported without a usable GPU (no driver, no device), check that one is available
+    try:
+        xp.cuda.runtime.getDeviceCount()
+    except xp.cuda.runtime.CUDARuntimeError as e:
+        raise ImportError(e) from e
+
     HAVE_GPU = True
 
 except ImportError as e:  # pragma: no cover
     if not FORCE_CPU and importlib.util.find_spec("cupy") is not None:
-        # CuPy is installed but cannot be loaded (e.g. missing CUDA libraries), don't fall back silently
+        # CuPy is installed but cannot be used (e.g. missing CUDA libraries or no GPU), don't fall back silently
         warnings.warn(
             f"CuPy is installed but failed to load ({e}). Falling back to the CPU backend. "
             "Install greenWTE[cuda12x] or greenWTE[cuda13x] to get the CUDA libraries from PyPI, "

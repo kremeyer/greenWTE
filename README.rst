@@ -34,7 +34,7 @@ Marzari and Mauri in their paper `"Wigner Formulation of Thermal Transport in So
 
 
 - The full documentation including installation instructions, tutorials and API reference is hosted on `Read the Docs`_.
-- Releases are available on `PyPI`_ and can be installed via ``pip install greenWTE[cuda12x,cuda13x]``.
+- Releases are available on `PyPI`_ and can be installed via ``pip install greenWTE[cuda13x]``.
 - The source code is available on `GitHub`_.
 
 .. _Read the Docs: https://greenwte.readthedocs.io/

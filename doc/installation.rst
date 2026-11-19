@@ -3,17 +3,19 @@ Installation
 
 Requirements
 ------------
-greenWTE requires Python 3.10 or higher and the `NVIDIA CUDA toolkit`_ 12 or 13 are recommended to achieve
-reasonable performance when using a GPU. Note that currently numpy 2.0 or higher is not compatible with CUDA.
+greenWTE requires Python 3.10 or higher and NumPy 2. A GPU is optional, but recommended to achieve reasonable
+performance. GPU support is provided by `CuPy`_ and requires an NVIDIA GPU with a recent driver supporting
+CUDA 12 or 13. The CUDA toolkit itself does not have to be installed, see below.
 Python package requirements can be found `in the pyproject.toml file`_.
 This file also contains information about what python and CUDA versions this package has been tested with.
 
-.. _NVIDIA CUDA toolkit: https://developer.nvidia.com/cuda-toolkit
+.. _CuPy: https://cupy.dev
 .. _in the pyproject.toml file: https://github.com/kremeyer/greenWTE/blob/main/pyproject.toml
 
 Installation
 ------------
-A PyPI package is available for greenWTE. You can install it using pip:
+A PyPI package is available for greenWTE. Pick **one** of the CUDA extras below; installing more than one
+of them into the same environment leads to conflicting CuPy installations.
 
 .. code-block:: bash
 
@@ -25,13 +27,37 @@ or for CUDA 12.x:
 
     python3 -m pip install greenWTE[cuda12x]
 
+These extras also install the required CUDA libraries from PyPI (about 1.7 GB), so only the NVIDIA driver needs
+to be present on your system. Run ``nvidia-smi`` to check which CUDA version your driver supports.
+
+Which CUDA version should I use?
+    CUDA 13 does not support GPUs older than the Turing generation (compute capability 7.5). If you have a
+    Maxwell, Pascal or Volta GPU (e.g. GTX 900/1000 series, Tesla P100, V100), use ``cuda12x``. For newer GPUs
+    either works, ``cuda13x`` is recommended if your driver supports it.
+
+Using an existing CUDA toolkit
+    If a CUDA toolkit is already provided on your system, e.g. via environment modules on an HPC cluster, you
+    can skip downloading the CUDA libraries by using the ``cuda13x-system`` or ``cuda12x-system`` extras instead:
+
+    .. code-block:: bash
+
+        module load cuda/13  # or however your system provides CUDA
+        python3 -m pip install greenWTE[cuda13x-system]
+
+    CuPy then has to be able to find the toolkit, e.g. via the ``CUDA_PATH`` environment variable.
+
+CPU only
+    Installing greenWTE without any extra (``python3 -m pip install greenWTE``) runs all calculations on the CPU.
+    If CuPy is installed but cannot be loaded, greenWTE warns and falls back to the CPU. The CPU backend can
+    also be forced by setting the environment variable ``GREENWTE_BACKEND=CPU``.
+
 You can also install greenWTE directly from the GitHub repository using pip:
 
 .. code-block:: bash
 
-    python3 -m pip install "greenWTE[cuda{12,13}x] @ git+ssh://git@github.com/kremeyer/greenWTE.git"
+    python3 -m pip install "greenWTE[cuda13x] @ git+ssh://git@github.com/kremeyer/greenWTE.git"
 
-Replacing ``{12,13}`` with your desired CUDA version.
+Replacing ``cuda13x`` with the extra you want to use.
 
 Testing
 -------

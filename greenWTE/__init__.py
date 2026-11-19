@@ -1,5 +1,6 @@
 """greenWTE — frequency-domain solvers for the phonon Wigner Transport Equation (WTE)."""
 
+import importlib.util
 import os
 import warnings
 
@@ -44,7 +45,17 @@ try:  # pragma: no cover
 
     HAVE_GPU = True
 
-except ImportError:  # pragma: no cover
+except ImportError as e:  # pragma: no cover
+    if not FORCE_CPU and importlib.util.find_spec("cupy") is not None:
+        # CuPy is installed but cannot be loaded (e.g. missing CUDA libraries), don't fall back silently
+        warnings.warn(
+            f"CuPy is installed but failed to load ({e}). Falling back to the CPU backend. "
+            "Install greenWTE[cuda12x] or greenWTE[cuda13x] to get the CUDA libraries from PyPI, "
+            "or make a system CUDA toolkit available. Set GREENWTE_BACKEND=CPU to silence this warning.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     import numpy as xp
     from scipy.interpolate import PchipInterpolator as xp_PchipInterpolator
     from scipy.sparse.linalg import gmres as xp_gmres

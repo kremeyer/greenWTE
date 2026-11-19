@@ -1,5 +1,6 @@
 """Base classes and methods for the greenWTE package."""
 
+import inspect
 import time
 import warnings
 from abc import ABC, abstractmethod
@@ -15,7 +16,11 @@ import numpy as np
 from scipy.constants import hbar
 from scipy.optimize import root
 
-from . import HAVE_GPU, nvtx_utils, to_cpu, xp, xp_gmres, xp_PchipInterpolator
+from . import nvtx_utils, to_cpu, xp, xp_gmres, xp_PchipInterpolator
+
+# name of the relative tolerance keyword of the GMRES solver in use:
+# scipy>=1.14 and cupy>=14 use 'rtol', older cupy versions use 'tol'
+_GMRES_RTOL_KW = "rtol" if "rtol" in inspect.signature(xp_gmres).parameters else "tol"
 
 
 class Material:
@@ -1296,12 +1301,7 @@ def _dT_to_N_iterative(
                     "atol": conv_thr_abs,
                     "M": xp.diag(1 / lhs.diagonal()),
                 }
-                if HAVE_GPU:  # pragma: no cover
-                    # cupyx GMRES uses 'tol' for relative tolerance
-                    gmres_kwargs["tol"] = conv_thr_rel
-                else:  # pragma: no cover
-                    # scipy GMRES uses 'rtol' for relative tolerance
-                    gmres_kwargs["rtol"] = conv_thr_rel
+                gmres_kwargs[_GMRES_RTOL_KW] = conv_thr_rel
                 sol, info = xp_gmres(
                     lhs,
                     rhs,

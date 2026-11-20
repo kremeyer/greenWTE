@@ -166,7 +166,7 @@ def interpolate_onto_path(
         qpath_interp.append(seg)
     qpath_interp = np.vstack(qpath_interp)
 
-    interpolator = LinearNDInterpolator(qmesh, data, fill_value=np.NaN)
+    interpolator = LinearNDInterpolator(qmesh, data, fill_value=np.nan)
     interp_data = interpolator(qpath_interp)
 
     if smooth:

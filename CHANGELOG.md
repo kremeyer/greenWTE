@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `'affine'` outer solver (`--outer-solver affine` in the CLI): solves the self-consistency condition for energy
+  sources in closed form with two applications of the Green operator, reliable also in the diffusive regime where the
+  iterative outer solvers stall
+
 ## [1.1.0] - 2026-11-20
 
 ### Added

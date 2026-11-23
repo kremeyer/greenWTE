@@ -46,9 +46,10 @@ class IterativeWTESolver(SolverBase):
         The relative convergence threshold for the solver.
     conv_thr_abs : float, optional
         The absolute convergence threshold for the solver.
-    outer_solver : {'plain', 'aitken', 'root', 'none'}, optional
+    outer_solver : {'plain', 'aitken', 'root', 'affine', 'none'}, optional
         Outer-solver strategy. ``'root'`` uses :func:`scipy.optimize.root`, ``'plain'`` is fixed-point, ``'aitken'``
-        applies :class:`~greenWTE.base.AitkenAccelerator`, and ``'none'`` performs a single mapping.
+        applies :class:`~greenWTE.base.AitkenAccelerator`, ``'affine'`` solves the affine self-consistency condition
+        in closed form (energy sources only), and ``'none'`` performs a single mapping.
     inner_solver : {'gmres', 'cgesv'}, optional
         Inner solver for mapping ``dT`` to ``n``.
         - ``'gmres'``: Iterative Krylov solver with residual history tracking.
@@ -119,6 +120,27 @@ class IterativeWTESolver(SolverBase):
             source=self.source,
             source_type=self.source_type,
             sol_guess=sol_guess,
+            solver=self.inner_solver,
+            conv_thr_rel=self.conv_thr_rel,
+            conv_thr_abs=self.conv_thr_abs,
+            progress=self.verbose,
+        )
+
+    def _apply_green(
+        self,
+        rhs: xp.ndarray,
+        omg_ft: float,
+        omg_idx: int,
+    ) -> tuple[xp.ndarray, list]:
+        # with dT = 0 the Gamma*nbar*dT term vanishes and an "energy" source is used as-is: n = L^-1 rhs
+        return dT_to_N_iterative(
+            dT=0.0,
+            omg_ft=omg_ft,
+            k_ft=self.k_ft,
+            material=self.material,
+            source=rhs,
+            source_type="energy",
+            sol_guess=None,
             solver=self.inner_solver,
             conv_thr_rel=self.conv_thr_rel,
             conv_thr_abs=self.conv_thr_abs,

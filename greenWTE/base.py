@@ -306,6 +306,7 @@ class SolverBase(ABC):
     - **plain**: fixed-point iteration
     - **aitken**: Aitken's Δ² acceleration of fixed-point iteration
     - **root**: root finding on the complex plane using :py:func:`scipy.optimize.root`
+    - **affine**: closed-form solution of the affine fixed-point condition (energy sources only)
     - **none**: single mapping without iteration
 
     Parameters
@@ -330,9 +331,10 @@ class SolverBase(ABC):
         The relative convergence threshold for the solver.
     conv_thr_abs : float, optional
         The absolute convergence threshold for the solver.
-    outer_solver : {'plain', 'aitken', 'root', 'none'}, optional
+    outer_solver : {'plain', 'aitken', 'root', 'affine', 'none'}, optional
         Outer-solver strategy. ``'root'`` uses :func:`scipy.optimize.root`, ``'plain'`` is fixed-point, ``'aitken'``
-        applies :class:`~greenWTE.base.AitkenAccelerator`, and ``'none'`` performs a single mapping.
+        applies :class:`~greenWTE.base.AitkenAccelerator`, ``'affine'`` solves the affine self-consistency condition
+        in closed form (energy sources only), and ``'none'`` performs a single mapping.
     command_line_args : argparse.Namespace, optional
         Optional namespace of parsed command-line arguments to be added to the results file.
     print_progress : bool, optional
@@ -425,6 +427,55 @@ class SolverBase(ABC):
         Subclasses must implement this method.
         """
 
+    def _apply_green(
+        self,
+        rhs: xp.ndarray,
+        omg_ft: float,
+        omg_idx: int,
+    ) -> tuple[xp.ndarray, list]:
+        r"""Apply the Green operator :math:`\mathcal{G} = \mathcal{L}^{-1}` to an arbitrary right-hand side.
+
+        Required by the ``'affine'`` outer solver. Subclasses that support it must implement this method.
+
+        Parameters
+        ----------
+        rhs : cupy.ndarray
+            Right-hand side, shape (nq, nat3, nat3).
+        omg_ft : float
+            The temporal Fourier variable in rad/s.
+        omg_idx : int
+            The index of ``omg_ft`` in :attr:`omg_ft_array`.
+
+        Returns
+        -------
+        cupy.ndarray
+            :math:`\mathcal{G}\,\mathrm{rhs}`, shape (nq, nat3, nat3).
+        list
+            Inner-solver residuals, one list per q-point.
+
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support the 'affine' outer solver.")
+
+    def _get_run_func(self):
+        """Return the per-frequency run method selected by :attr:`outer_solver`."""
+        if self.outer_solver == "aitken":
+            return self._run_solver_aitken
+        if self.outer_solver == "plain":
+            return self._run_solver_plain
+        if self.outer_solver == "root":
+            return self._run_solver_root
+        if self.outer_solver == "affine":
+            if self.source_type != "energy":
+                raise ValueError(
+                    "The 'affine' outer solver requires an energy source. For gradient sources dT is imposed; "
+                    "use outer_solver='none' instead."
+                )
+            return self._run_solver_affine
+        if self.outer_solver == "none":
+            self.max_iter = 1  # just for string formatting
+            return self._run_solver_none
+        raise ValueError(f"Unknown outer solver: {self.outer_solver}")
+
     def _dT_converged(self, dT: complex, dT_new: complex) -> bool:
         r"""Check whether two successive :math:`\Delta T` iterates meet the thresholds.
 
@@ -452,17 +503,7 @@ class SolverBase(ABC):
         changes :math:`\Delta T(\omega)` and the Wigner distribution. After running, the results are stored in the class
         attributes dT, dT_init, n, niter, n_norms, iter_time, dT_iterates, and gmres_residual.
         """
-        if self.outer_solver == "aitken":
-            run_func = self._run_solver_aitken
-        elif self.outer_solver == "plain":
-            run_func = self._run_solver_plain
-        elif self.outer_solver == "root":
-            run_func = self._run_solver_root
-        elif self.outer_solver == "none":
-            run_func = self._run_solver_none
-            self.max_iter = 1  # just for string formatting
-        else:
-            raise ValueError(f"Unknown outer solver: {self.outer_solver}")
+        run_func = self._get_run_func()
 
         for i, omg_ft in enumerate(self.omg_ft_array):
             ret = run_func(i, omg_ft)
@@ -730,6 +771,62 @@ class SolverBase(ABC):
         iter_times.append(time.time() - iter_start)
 
         return omg_ft, dT, dT, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
+
+    def _run_solver_affine(
+        self, omg_idx: int, omg_ft: float
+    ) -> tuple[float, complex, complex, xp.ndarray, int, list[float], list[complex], list[float], list[float]]:
+        r"""Solve the self-consistency condition for :math:`\Delta T` in closed form.
+
+        For an energy source the fixed-point map is affine, :math:`\Delta T \mapsto a + b\,\Delta T`, with
+
+        .. math::
+
+           a = \mathcal{T}[\mathcal{G} S], \qquad b = \mathcal{T}[\mathcal{G}\,\Gamma\bar n],
+
+        where :math:`\mathcal{T}` is :func:`N_to_dT` and :math:`\bar n` the equilibrium distribution per kelvin. The
+        fixed point is :math:`\Delta T = a / (1 - b)`. In the diffusive regime :math:`b \to 1`, which stalls iterative
+        outer solvers, and computing :math:`1 - b` by subtraction loses precision. Instead we use that the commutator
+        with the phonon frequencies vanishes on the diagonal :math:`\bar n`, so that
+        :math:`\mathcal{L}\bar n = \Gamma\bar n - r` with :math:`r = i\omega\bar n + \tfrac{ik}{2}\{V, \bar n\}`. Since
+        :math:`\mathcal{T}[\bar n] = 1`, this gives :math:`1 - b = -\mathcal{T}[\mathcal{G} r]` without cancellation.
+        The Wigner distribution follows as :math:`n = \mathcal{G}S + \Delta T\,(\bar n + \mathcal{G} r)`.
+
+        Two applications of :math:`\mathcal{G}` are needed per frequency; no outer iteration is performed.
+
+        Parameters
+        ----------
+        omg_idx : int
+            The index of the temporal Fourier variable for which the WTE will be solved.
+        omg_ft : float
+            The temporal Fourier variable in rad/s for which the WTE will be solved.
+
+        Returns
+        -------
+        tuple
+            Same layout as the other ``_run_solver_*`` methods. ``niter`` counts the two Green-operator applications,
+            ``dT_iterates`` holds the single closed-form ``dT``, and ``gmres_residual`` one entry per application.
+
+        """
+        iter_start = time.time()
+
+        nbar = equilibrium_n_per_kelvin(self.material)
+        r = affine_remainder_rhs(omg_ft, self.k_ft, self.material, nbar)
+
+        n_source, resid_source = self._apply_green(self.source, omg_ft, omg_idx)
+        n_rem, resid_rem = self._apply_green(r, omg_ft, omg_idx)
+
+        a = N_to_dT(n_source, self.material)
+        one_minus_b = -N_to_dT(n_rem, self.material)
+        dT = xp.asarray(a / one_minus_b, dtype=self.dtypec)
+
+        n = n_rem
+        idx = xp.arange(self.nat3)
+        n[:, idx, idx] += nbar
+        n *= dT
+        n += n_source
+
+        iter_times = [time.time() - iter_start]
+        return omg_ft, dT, dT, n, 2, iter_times, [dT], [], [resid_source, resid_rem]
 
     def _run_solver_root(
         self, omg_idx: int, omg_ft: float
@@ -1085,6 +1182,58 @@ def _N_to_dT(n: xp.ndarray, phonon_freq: xp.ndarray, heat_capacity: xp.ndarray, 
     dT *= hbar / volume / nq
     dT /= xp.sum(heat_capacity)
     return dT
+
+
+def equilibrium_n_per_kelvin(material: Material) -> xp.ndarray:
+    r"""Diagonal of the equilibrium Wigner distribution per kelvin, :math:`\bar n = V n_q C / (\hbar\omega)`.
+
+    This is the same normalization used for the :math:`\Gamma\bar n\,\Delta T` term of the WTE, chosen such that
+    :func:`N_to_dT` maps :math:`\mathrm{diag}(\bar n)` to exactly 1 K.
+
+    Parameters
+    ----------
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
+
+    Returns
+    -------
+    cupy.ndarray
+        :math:`\bar n` in 1/K, shape (nq, nat3).
+
+    """
+    return material.volume * material.nq / hbar * material.heat_capacity / material.phonon_freq
+
+
+def affine_remainder_rhs(omg_ft: float, k_ft: float, material: Material, nbar: xp.ndarray | None = None) -> xp.ndarray:
+    r"""Right-hand side :math:`r = i\omega\bar n + \tfrac{ik}{2}\{V, \bar n\}` used by the ``'affine'`` outer solver.
+
+    It satisfies :math:`\mathcal{L}\bar n = \Gamma\bar n - r`, so :math:`\mathcal{G}\Gamma\bar n = \bar n +
+    \mathcal{G}r`.
+
+    Parameters
+    ----------
+    omg_ft : float
+        The temporal Fourier variable in rad/s.
+    k_ft : float
+        The thermal grating wavevector in rad/m.
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
+    nbar : cupy.ndarray, optional
+        Precomputed :func:`equilibrium_n_per_kelvin`, shape (nq, nat3).
+
+    Returns
+    -------
+    cupy.ndarray
+        :math:`r`, shape (nq, nat3, nat3).
+
+    """
+    if nbar is None:
+        nbar = equilibrium_n_per_kelvin(material)
+    # {V, nbar}_ij = V_ij (nbar_i + nbar_j) for diagonal nbar
+    r = (0.5j * k_ft) * material.velocity_operator * (nbar[:, :, None] + nbar[:, None, :])
+    idx = xp.arange(material.nat3)
+    r[:, idx, idx] += 1j * omg_ft * nbar
+    return r.astype(material.dtypec, copy=False)
 
 
 def dT_to_N_iterative(

@@ -375,9 +375,10 @@ class GreenWTESolver(SolverBase):
         The relative convergence threshold for the solver.
     conv_thr_abs : float, optional
         The absolute convergence threshold for the solver.
-    outer_solver : {'plain', 'aitken', 'root', 'none'}, optional
+    outer_solver : {'plain', 'aitken', 'root', 'affine', 'none'}, optional
         Outer-solver strategy. ``'root'`` uses :func:`scipy.optimize.root`, ``'plain'`` is fixed-point, ``'aitken'``
-        applies :class:`~greenWTE.base.AitkenAccelerator`, and ``'none'`` performs a single mapping.
+        applies :class:`~greenWTE.base.AitkenAccelerator`, ``'affine'`` solves the affine self-consistency condition
+        in closed form (energy sources only), and ``'none'`` performs a single mapping.
     command_line_args : argparse.Namespace, optional
         Optional namespace of parsed command-line arguments to be added to the results file.
     print_progress : bool, optional
@@ -456,6 +457,22 @@ class GreenWTESolver(SolverBase):
         )
         return n, [[] for _ in range(self.material.nq)]  # no residuals from matrix multiplication
 
+    def _apply_green(
+        self,
+        rhs: xp.ndarray,
+        omg_ft: float,
+        omg_idx: int,
+    ) -> tuple[xp.ndarray, list]:
+        # with dT = 0 the Gamma*nbar*dT term vanishes and an "energy" source is used as-is: n = G rhs
+        n = dT_to_N_matmul(
+            dT=0.0,
+            material=self.material,
+            green=self.greens[omg_idx],
+            source=rhs,
+            source_type="energy",
+        )
+        return n, [[] for _ in range(self.material.nq)]
+
     def run(self, free: bool = True) -> None:
         r"""Run the WTE solver at each :math:`\omega \in` :attr:`omg_ft_array`.
 
@@ -463,17 +480,7 @@ class GreenWTESolver(SolverBase):
         changes :math:`\Delta T(\omega)` and the Wigner distribution. After running, the results are stored in the class
         attributes dT, dT_init, n, niter, n_norms, iter_time, dT_iterates, and gmres_residual.
         """
-        if self.outer_solver == "aitken":
-            run_func = self._run_solver_aitken
-        elif self.outer_solver == "plain":
-            run_func = self._run_solver_plain
-        elif self.outer_solver == "root":
-            run_func = self._run_solver_root
-        elif self.outer_solver == "none":
-            run_func = self._run_solver_none
-            self.max_iter = 1  # just for print formatting
-        else:
-            raise ValueError(f"Unknown outer solver: {self.outer_solver}")
+        run_func = self._get_run_func()
 
         for i, omg_ft in enumerate(self.omg_ft_array):
             g = self.greens[i]

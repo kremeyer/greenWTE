@@ -44,7 +44,7 @@ def get_parser() -> ArgumentParser:
         "-os",
         "--outer-solver",
         type=str,
-        choices=["aitken", "plain", "root", "none"],
+        choices=["aitken", "plain", "root", "affine", "none"],
         default="aitken",
         help="outer solver to use",
     )

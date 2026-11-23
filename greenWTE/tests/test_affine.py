@@ -7,6 +7,7 @@ from greenWTE import to_cpu, xp
 from greenWTE.base import (
     Material,
     N_to_dT,
+    N_to_dT_closure,
     SolverBase,
     affine_remainder_rhs,
     dT_to_N_iterative,
@@ -28,22 +29,24 @@ def si_material():
 
 
 def _self_consistency_error(solver, material):
-    """Largest relative deviation |T(dT) - dT| / |dT| over all frequencies."""
+    """Largest relative deviation |T(dT) - dT| / |dT| of the closure temperature over all frequencies."""
     errs = []
     for i, w in enumerate(solver.omg_ft_array):
-        n_next, _ = solver._dT_to_N(dT=solver.dT[i], omg_ft=float(w), omg_idx=i)
-        dT_next = complex(N_to_dT(n_next, material))
-        errs.append(abs(dT_next - complex(solver.dT[i])) / abs(complex(solver.dT[i])))
+        dT = complex(solver.dT_closure[i])
+        n_next, _ = solver._dT_to_N(dT=dT, omg_ft=float(w), omg_idx=i)
+        dT_next = complex(N_to_dT_closure(n_next, material))
+        errs.append(abs(dT_next - dT) / abs(dT))
     return max(errs)
 
 
-def test_equilibrium_n_maps_to_one_kelvin(si_material):
-    """N_to_dT(diag(nbar)) must be exactly 1 K; the affine solver relies on it."""
+@pytest.mark.parametrize("to_dT", [N_to_dT, N_to_dT_closure])
+def test_equilibrium_n_maps_to_one_kelvin(si_material, to_dT):
+    """diag(nbar) must map to exactly 1 K; the affine solver relies on it for the closure."""
     nbar = equilibrium_n_per_kelvin(si_material)
     n = xp.zeros((si_material.nq, si_material.nat3, si_material.nat3), dtype=si_material.dtypec)
     idx = xp.arange(si_material.nat3)
     n[:, idx, idx] = nbar
-    assert abs(complex(N_to_dT(n, si_material)) - 1) < 1e-13
+    assert abs(complex(to_dT(n, si_material)) - 1) < 1e-13
 
 
 @pytest.mark.parametrize("omg_ft", OMEGAS)
@@ -56,7 +59,7 @@ def test_remainder_identity(si_material, omg_ft, k_ft):
 
     def T(dT, src):
         n, _ = dT_to_N_iterative(dT, omg_ft, k_ft, si_material, src, "energy", solver="cgesv")
-        return complex(N_to_dT(n, si_material))
+        return complex(N_to_dT_closure(n, si_material))
 
     b_naive = T(1.0, source) - T(0.0, source)
     one_minus_b = -T(0.0, r)

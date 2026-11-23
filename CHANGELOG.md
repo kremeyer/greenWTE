@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file.
   sources in closed form with two applications of the Green operator, reliable also in the diffusive regime where the
   iterative outer solvers stall
 
+### Changed
+
+- the relaxation term now relaxes the populations towards the linewidth-weighted temperature
+  `greenWTE.base.N_to_dT_closure`, which conserves energy in the collisions; with the previous energy-weighted
+  temperature heat-source gratings decayed too fast (2.6x in Si) and heat-source `kappa` changed by a few % in the
+  nondiffusive regime. `dT` still reports the energy temperature E/C, the closure temperature is available as
+  `dT_closure` (also saved to the output files)
+
 ### Fixed
 
 - outer solvers stopped too early when |dT| << 1 K (e.g. normalized energy sources), because the relative tolerance

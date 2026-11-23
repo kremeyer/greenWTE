@@ -389,6 +389,7 @@ def test_save_solver_result_branches(tmp_path):
     class Solver:
         # arrays saved via .get()
         dT = Mat([0.0])
+        dT_closure = Mat([0.5])
         dT_init = Mat([1.0])
         n = Mat([2.0])
         niter = Mat([3])

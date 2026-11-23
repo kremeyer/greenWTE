@@ -689,6 +689,7 @@ def save_solver_result(filename: PathLike, solver: SolverBase, **kwargs) -> None
     The function records (if available):
 
     - ``dT``: complex temperature response over frequencies ``(Nw,)``.
+    - ``dT_closure``: closure temperature of the relaxation term ``(Nw,)``.
     - ``dT_init``: initial guess ``(Nw,)``.
     - ``n``: Wigner distribution ``(Nw, nq, m)`` or similar aggregate.
     - ``niter``: number of outer iterations per frequency.
@@ -707,6 +708,8 @@ def save_solver_result(filename: PathLike, solver: SolverBase, **kwargs) -> None
     with h5py.File(filename, "w") as h5f:
         h5f.create_dataset("dT", data=to_cpu(solver.dT))
         h5f["dT"].attrs["units"] = "Kelvin"
+        h5f.create_dataset("dT_closure", data=to_cpu(solver.dT_closure))
+        h5f["dT_closure"].attrs["units"] = "Kelvin"
         h5f.create_dataset("dT_init", data=to_cpu(solver.dT_init))
         h5f["dT_init"].attrs["units"] = "Kelvin"
         h5f.create_dataset("n", data=to_cpu(solver.n))

@@ -9,7 +9,7 @@ except ImportError:
     from typing_extensions import Self
 
 from . import nvtx_utils, xp
-from .base import Material, N_to_dT, SolverBase, dT_to_N_matmul
+from .base import Material, SolverBase, dT_to_N_matmul
 from .io import GreenContainer
 
 
@@ -486,47 +486,7 @@ class GreenWTESolver(SolverBase):
             g = self.greens[i]
             g.compute()  # ensure the Green's operator is computed or loaded from disk
             ret = run_func(i, omg_ft)
-            self.dT[i] = ret[1]
-            self.dT_init[i] = ret[2]
-            self.n[i] = ret[3]
-            self.niter[i] = ret[4]
-            self.iter_time_list.append(ret[5])
-            self.dT_iterates_list.append(ret[6])
-            self.n_norms_list.append(ret[7])
-            self.gmres_residual_list.append(ret[8])
-
-            if self.outer_solver != "none":
-                # check self-consistency by checking norm(n(dT) - n)
-                last_n = ret[3]
-                theoretical_next_n, _ = self._dT_to_N(
-                    dT=ret[1],
-                    omg_ft=omg_ft,
-                    omg_idx=i,
-                    sol_guess=None,
-                )
-                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / (xp.linalg.norm(last_n) + 1e-300)
-                theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
-                self.n_norms_list[i].append(n_step_norm)
-            else:
-                n_step_norm = 0
-                theoretical_next_dT = 0
-                self.n_norms_list[i].append(xp.nan)
-
-            if self.print_progress:
-                if self.verbose:
-                    print("")
-                width = len(str(len(self.omg_ft_array)))
-                print(
-                    f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
-                    f"k={self.k_ft:.2e} "
-                    f"w={omg_ft:.2e} "
-                    f"dT={self.dT[i]: .2e} "
-                    f"n_it={self.niter[i]:{int(xp.log10(self.max_iter)) + 1}d} "
-                    f"it_time={xp.mean(xp.array(self.iter_time_list[-1])):.2f} "
-                    f"n_conv={n_step_norm:.1e} "
-                    f"dT_conv={xp.abs(self.dT[i] - theoretical_next_dT) / xp.abs(self.dT[i]):.1e} "
-                    f"dT_next={theoretical_next_dT: .1e}"
-                )
+            self._store_result(i, omg_ft, ret)
 
             if free:
                 g.free()  # free memory allocated to the Green's operator

@@ -120,11 +120,18 @@ def test_cspbbr3_anisotropy():
     assert not xp.allclose(kappas[:, 1], xp.mean(kappas[:, 1]), rtol=0.2)
 
 
+# In the diffusive regime (e.g. k = 1e4 rad/m) the fixed-point problem for dT is ill-conditioned: errors of the inner
+# solver are amplified by ~1/|1-b| ~ 1e6 in Si, so iterative outer solvers with a loose GMRES tolerance cannot reach a
+# tight outer tolerance there (outer_solver='affine' is the method of choice). The convergence criteria are tested on
+# a well-conditioned grating instead.
+K_CONVERGENCE_TESTS = 1e7  # rad/m
+
+
 @pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
 @pytest.mark.parametrize("inner_solver", ["cgesv", "gmres"])
 def test_dT_convergence_absolute(outer_solver, inner_solver):
     """Converges under absolute tolerance only: |F(dT)| <= conv_thr_a."""
-    conv_thr_abs = 1e-7 if outer_solver != "plain" else 1e-3  # plain is slow
+    conv_thr_abs = 1e-7
     conv_thr_rel = 0.0  # disable relative tolerance
 
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
@@ -132,7 +139,7 @@ def test_dT_convergence_absolute(outer_solver, inner_solver):
 
     solver = IterativeWTESolver(
         omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
-        k_ft=DEFAULT_THERMAL_GRATING,
+        k_ft=K_CONVERGENCE_TESTS,
         material=material,
         source=source,
         outer_solver=outer_solver,
@@ -151,7 +158,7 @@ def test_dT_convergence_absolute(outer_solver, inner_solver):
 @pytest.mark.parametrize("inner_solver", ["cgesv", "gmres"])
 def test_dT_convergence_relative(outer_solver, inner_solver):
     """Converges under relative tolerance only: |F(dT)| <= conv_thr_r * max(|dT|,|dT_next|)."""
-    conv_thr_rel = 1e-7 if outer_solver != "plain" else 1e-3  # plain is slow
+    conv_thr_rel = 1e-7
     conv_thr_abs = 0.0  # disable absolute tolerance
 
     material = Material.from_phono3py(SI_INPUT_PATH, DEFAULT_TEMPERATURE, dir_idx=0)
@@ -159,7 +166,7 @@ def test_dT_convergence_relative(outer_solver, inner_solver):
 
     solver = IterativeWTESolver(
         omg_ft_array=xp.array([DEFAULT_TEMPORAL_FREQUENCY]),
-        k_ft=DEFAULT_THERMAL_GRATING,
+        k_ft=K_CONVERGENCE_TESTS,
         material=material,
         source=source,
         outer_solver=outer_solver,
@@ -172,6 +179,10 @@ def test_dT_convergence_relative(outer_solver, inner_solver):
 
     r_abs, scale, dT_final, _ = _final_residual_and_scale(solver, material)
     thresh = conv_thr_abs + conv_thr_rel * scale
+    # GMRES also runs with rtol=conv_thr_rel, so the re-evaluation of F is itself only accurate to ~conv_thr_rel * |dT|;
+    # 'plain' stops right at the threshold, where that noise matters
+    if inner_solver == "gmres":
+        thresh *= 2
     assert r_abs <= thresh, f"|F|={r_abs:.3e} > rtol*scale={thresh:.3e} (|dT|~{abs(dT_final):.3e})"
 
 

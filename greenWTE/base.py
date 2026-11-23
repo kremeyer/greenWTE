@@ -347,7 +347,10 @@ class SolverBase(ABC):
     Attributes
     ----------
     dT : cupy.ndarray
-        Converged complex temperature changes, shape (n_omg_ft,).
+        Complex temperature changes, shape (n_omg_ft,). For energy sources this is the energy temperature :math:`E/C`
+        of the solution (:func:`N_to_dT`), for gradient sources (or ``outer_solver='none'``) the imposed value.
+    dT_closure : cupy.ndarray
+        Self-consistent closure temperatures of the relaxation term (:func:`N_to_dT_closure`), shape (n_omg_ft,).
     n : cupy.ndarray
         Computed Wigner distributions, shape (n_omg_ft, nq, nat3, nat3).
 
@@ -407,6 +410,7 @@ class SolverBase(ABC):
 
         self.history = []
         self.dT = xp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
+        self.dT_closure = xp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
         self.dT_init = xp.zeros_like(self.omg_ft_array, dtype=self.dtypec)
         self.dT_init_user = dT_init
         self.n = xp.zeros((self.omg_ft_array.shape[0], self.nq, self.nat3, self.nat3), dtype=self.dtypec)
@@ -509,49 +513,58 @@ class SolverBase(ABC):
 
         for i, omg_ft in enumerate(self.omg_ft_array):
             ret = run_func(i, omg_ft)
-            self.dT[i] = ret[1]
-            self.dT_init[i] = ret[2]
-            self.n[i] = ret[3]
-            self.niter[i] = ret[4]
-            self.iter_time_list.append(ret[5])
-            self.dT_iterates_list.append(ret[6])
-            self.n_norms_list.append(ret[7])
-            self.gmres_residual_list.append(ret[8])
-
-            if self.outer_solver != "none":
-                # check self-consistency by checking norm(n(dT) - n)
-                last_n = ret[3]
-                theoretical_next_n, _ = self._dT_to_N(
-                    dT=ret[1],
-                    omg_ft=omg_ft,
-                    omg_idx=i,
-                    sol_guess=None,
-                )
-                n_step_norm = xp.linalg.norm(theoretical_next_n - last_n) / (xp.linalg.norm(last_n) + 1e-300)
-                theoretical_next_dT = N_to_dT(theoretical_next_n, self.material)
-                self.n_norms_list[i].append(n_step_norm)
-            else:
-                n_step_norm = 0
-                theoretical_next_dT = 0
-                self.n_norms_list[i].append(xp.nan)
-
-            if self.print_progress:
-                if self.verbose:
-                    print("")
-                width = len(str(len(self.omg_ft_array)))
-                print(
-                    f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
-                    f"k={self.k_ft:.2e} "
-                    f"w={omg_ft:.2e} "
-                    f"dT={self.dT[i]: .2e} "
-                    f"n_it={self.niter[i]:{int(xp.log10(self.max_iter)) + 1}d} "
-                    f"it_time={xp.mean(xp.array(self.iter_time_list[-1])):.2f} "
-                    f"n_conv={n_step_norm:.1e} "
-                    f"dT_conv={xp.abs(self.dT[i] - theoretical_next_dT) / xp.abs(self.dT[i]):.1e} "
-                    f"dT_next={theoretical_next_dT: .1e}"
-                )
+            self._store_result(i, omg_ft, ret)
 
         self._solution_lists_to_arrays()
+
+    def _store_result(self, i: int, omg_ft: float, ret: tuple) -> None:
+        r"""Store the result of one frequency, check its self-consistency and optionally print progress.
+
+        ``ret`` is the tuple returned by the ``_run_solver_*`` methods. Its :math:`\Delta T` is the closure temperature
+        the outer solver iterates on (:func:`N_to_dT_closure`) and is stored in :attr:`dT_closure`. For energy sources
+        solved self-consistently, :attr:`dT` reports the energy temperature :math:`E/C` of the solution
+        (:func:`N_to_dT`); otherwise (gradient sources, or ``outer_solver='none'``) :attr:`dT` is the imposed value.
+        """
+        dT_closure, n = ret[1], ret[3]
+        self.dT_closure[i] = dT_closure
+        if self.source_type == "energy" and self.outer_solver != "none":
+            self.dT[i] = N_to_dT(n, self.material)
+        else:
+            self.dT[i] = dT_closure
+        self.dT_init[i] = ret[2]
+        self.n[i] = n
+        self.niter[i] = ret[4]
+        self.iter_time_list.append(ret[5])
+        self.dT_iterates_list.append(ret[6])
+        self.n_norms_list.append(ret[7])
+        self.gmres_residual_list.append(ret[8])
+
+        if self.outer_solver != "none":
+            # check self-consistency by checking norm(n(dT) - n)
+            theoretical_next_n, _ = self._dT_to_N(dT=dT_closure, omg_ft=omg_ft, omg_idx=i, sol_guess=None)
+            n_step_norm = xp.linalg.norm(theoretical_next_n - n) / (xp.linalg.norm(n) + 1e-300)
+            theoretical_next_dT = N_to_dT_closure(theoretical_next_n, self.material)
+            self.n_norms_list[i].append(n_step_norm)
+        else:
+            n_step_norm = 0
+            theoretical_next_dT = 0
+            self.n_norms_list[i].append(xp.nan)
+
+        if self.print_progress:
+            if self.verbose:
+                print("")
+            width = len(str(len(self.omg_ft_array)))
+            print(
+                f"[{i + 1:{width}d}/{len(self.omg_ft_array)}] "
+                f"k={self.k_ft:.2e} "
+                f"w={omg_ft:.2e} "
+                f"dT={self.dT[i]: .2e} "
+                f"n_it={self.niter[i]:{int(xp.log10(self.max_iter)) + 1}d} "
+                f"it_time={xp.mean(xp.array(self.iter_time_list[-1])):.2f} "
+                f"n_conv={n_step_norm:.1e} "
+                f"dT_conv={xp.abs(dT_closure - theoretical_next_dT) / xp.abs(dT_closure):.1e} "
+                f"dT_next={theoretical_next_dT: .1e}"
+            )
 
     def _run_solver_aitken(
         self, omg_idx: int, omg_ft: float
@@ -615,7 +628,7 @@ class SolverBase(ABC):
                 sol_guess=n_prev,
             )
             gmres_residual.append(resid)
-            dT_new = N_to_dT(n, self.material)
+            dT_new = N_to_dT_closure(n, self.material)
             converged = self._dT_converged(dT, dT_new)
             dT_iterates.append(dT_new)
             dT = accelerator.update(dT_new)
@@ -702,7 +715,7 @@ class SolverBase(ABC):
             )
             gmres_residual.append(resid)
 
-            dT_new = N_to_dT(n, self.material)
+            dT_new = N_to_dT_closure(n, self.material)
             converged = self._dT_converged(dT, dT_new)
             dT_iterates.append(dT_new)
             dT = dT_new
@@ -785,7 +798,7 @@ class SolverBase(ABC):
         )
         gmres_residual.append(resid)
 
-        dT_new = N_to_dT(n, self.material)
+        dT_new = N_to_dT_closure(n, self.material)
         dT_iterates.append(dT_new)
 
         iter_times.append(time.time() - iter_start)
@@ -803,10 +816,10 @@ class SolverBase(ABC):
 
            a = \mathcal{T}[\mathcal{G} S], \qquad b = \mathcal{T}[\mathcal{G}\,\Gamma\bar n],
 
-        where :math:`\mathcal{T}` is :func:`N_to_dT` and :math:`\bar n` the equilibrium distribution per kelvin. The
-        fixed point is :math:`\Delta T = a / (1 - b)`. In the diffusive regime :math:`b \to 1`, which stalls iterative
-        outer solvers, and computing :math:`1 - b` by subtraction loses precision. Instead we use that the commutator
-        with the phonon frequencies vanishes on the diagonal :math:`\bar n`, so that
+        where :math:`\mathcal{T}` is :func:`N_to_dT_closure` and :math:`\bar n` the equilibrium distribution per
+        kelvin. The fixed point is :math:`\Delta T = a / (1 - b)`. In the diffusive regime :math:`b \to 1`, which
+        stalls iterative outer solvers, and computing :math:`1 - b` by subtraction loses precision. Instead we use that
+        the commutator with the phonon frequencies vanishes on the diagonal :math:`\bar n`, so that
         :math:`\mathcal{L}\bar n = \Gamma\bar n - r` with :math:`r = i\omega\bar n + \tfrac{ik}{2}\{V, \bar n\}`. Since
         :math:`\mathcal{T}[\bar n] = 1`, this gives :math:`1 - b = -\mathcal{T}[\mathcal{G} r]` without cancellation.
         The Wigner distribution follows as :math:`n = \mathcal{G}S + \Delta T\,(\bar n + \mathcal{G} r)`.
@@ -835,8 +848,8 @@ class SolverBase(ABC):
         n_source, resid_source = self._apply_green(self.source, omg_ft, omg_idx)
         n_rem, resid_rem = self._apply_green(r, omg_ft, omg_idx)
 
-        a = N_to_dT(n_source, self.material)
-        one_minus_b = -N_to_dT(n_rem, self.material)
+        a = N_to_dT_closure(n_source, self.material)
+        one_minus_b = -N_to_dT_closure(n_rem, self.material)
         dT = xp.asarray(a / one_minus_b, dtype=self.dtypec)
 
         n = n_rem
@@ -916,7 +929,7 @@ class SolverBase(ABC):
             )
             gmres_residual.append(resid)
 
-            dT_new = N_to_dT(n, self.material)
+            dT_new = N_to_dT_closure(n, self.material)
             dT_iterates.append(dT_new)
             if n_old is not None:
                 n_step_norm = xp.linalg.norm(n - n_old) / (xp.linalg.norm(n_old) + 1e-300)
@@ -969,7 +982,7 @@ class SolverBase(ABC):
         else:
             # one fallback call
             n_final, _ = self._dT_to_N(dT=dT, omg_ft=omg_ft, omg_idx=omg_idx, sol_guess=n)
-            dT_final_new = N_to_dT(n_final, self.material)
+            dT_final_new = N_to_dT_closure(n_final, self.material)
 
         converged = self._dT_converged(dT, dT_final_new)
 
@@ -1173,7 +1186,10 @@ def _safe_divide(
 
 
 def N_to_dT(n: xp.ndarray, material: Material) -> complex:
-    r"""Compute :math:`\Delta T` from a Wigner distribution.
+    r"""Compute the energy temperature :math:`\Delta T = E / C` from a Wigner distribution.
+
+    This is the temperature a thermometer would read and the quantity reported as :attr:`SolverBase.dT`. The outer
+    solvers instead iterate on the energy-conserving closure temperature :func:`N_to_dT_closure`.
 
     Parameters
     ----------
@@ -1228,11 +1244,76 @@ def _N_to_dT(n: xp.ndarray, phonon_freq: xp.ndarray, heat_capacity: xp.ndarray, 
     return dT
 
 
+def N_to_dT_closure(n: xp.ndarray, material: Material) -> complex:
+    r"""Closure temperature of the RTA relaxation term, computed from a Wigner distribution.
+
+    In the relaxation-time approximation the populations relax towards a local equilibrium,
+    :math:`-\Gamma(n - \bar n\,\Delta T)`. Energy is conserved by the collisions only if :math:`\Delta T` is the
+    linewidth-weighted average
+
+    .. math::
+
+       \Delta T = \frac{\hbar}{V n_q}
+                  \frac{\sum_{q,s} \omega_{qs} \Gamma_{qs}\, n_{qs,qs}}{\sum_{q,s} \Gamma_{qs} C_{qs}},
+
+    which is what the outer solvers iterate on. It reduces to :func:`N_to_dT` (energy temperature) when all linewidths
+    are equal or the populations have the equilibrium shape. Coherences relax towards zero and do not enter.
+
+    Parameters
+    ----------
+    n : cupy.ndarray
+        Wigner distribution function n, shape (nq, nat3, nat3).
+    material : :py:class:`~greenWTE.base.Material`
+        Material instance.
+
+    Returns
+    -------
+    complex
+        The closure temperature change dT.
+
+    See Also
+    --------
+    N_to_dT : Energy temperature :math:`E/C`, the quantity reported as :attr:`SolverBase.dT`.
+
+    """
+    return _N_to_dT_closure(n, material.phonon_freq, material.linewidth, material.heat_capacity, material.volume)
+
+
+def _N_to_dT_closure(
+    n: xp.ndarray, phonon_freq: xp.ndarray, linewidth: xp.ndarray, heat_capacity: xp.ndarray, volume: float
+) -> complex:
+    r"""Closure temperature of the RTA relaxation term, see :func:`N_to_dT_closure`.
+
+    Parameters
+    ----------
+    n : cupy.ndarray
+        The wigner distribution function n, shape (nq, nat3, nat3).
+    phonon_freq : cupy.ndarray
+        The phonon frequencies in rad/s, shape (nq, nat3).
+    linewidth : cupy.ndarray
+        The linewidths in rad/s, shape (nq, nat3).
+    heat_capacity : cupy.ndarray
+        The heat capacity in J/m^3/K of the phonon modes, shape (nq, nat3).
+    volume : float
+        The volume of the cell in m^3.
+
+    Returns
+    -------
+    complex
+        The closure temperature change dT.
+
+    """
+    nq = n.shape[0]
+    populations = xp.diagonal(n, axis1=1, axis2=2)
+    dT = xp.sum(phonon_freq * linewidth * populations) * hbar / volume / nq
+    return dT / xp.sum(linewidth * heat_capacity)
+
+
 def equilibrium_n_per_kelvin(material: Material) -> xp.ndarray:
     r"""Diagonal of the equilibrium Wigner distribution per kelvin, :math:`\bar n = V n_q C / (\hbar\omega)`.
 
     This is the same normalization used for the :math:`\Gamma\bar n\,\Delta T` term of the WTE, chosen such that
-    :func:`N_to_dT` maps :math:`\mathrm{diag}(\bar n)` to exactly 1 K.
+    both :func:`N_to_dT` and :func:`N_to_dT_closure` map :math:`\mathrm{diag}(\bar n)` to exactly 1 K.
 
     Parameters
     ----------

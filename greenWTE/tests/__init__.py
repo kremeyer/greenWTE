@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from greenWTE import to_cpu, xp
-from greenWTE.base import N_to_dT
+from greenWTE.base import N_to_dT_closure
 
 ASSETS = {
     # filename: (sha256, [mirrors]).
@@ -102,11 +102,11 @@ for _name, (_hash, _urls) in ASSETS.items():
 
 def _final_residual_and_scale(solver, material):
     """Compute |F(dT)| and the scale used by the solver's combined tolerance."""
-    dT_final = solver.dT[0]
+    dT_final = solver.dT_closure[0]  # the variable the outer solver iterates on
     omg_ft = float(to_cpu(solver.omg_ft_array[0]))
     # Evaluate F at the final iterate to avoid Aitken mismatch
     n_next, _ = solver._dT_to_N(dT=dT_final, omg_ft=omg_ft, omg_idx=0, sol_guess=None)
-    dT_next = N_to_dT(n_next, material)
+    dT_next = N_to_dT_closure(n_next, material)
 
     r_abs = float(xp.abs(dT_final - dT_next))
     scale = float(max(xp.abs(dT_final), xp.abs(dT_next)))

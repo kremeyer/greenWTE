@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - `'affine'` outer solver (`--outer-solver affine` in the CLI): solves the self-consistency condition for energy
   sources in closed form with two applications of the Green operator, reliable also in the diffusive regime where the
   iterative outer solvers stall
+- docs: tutorial on extracting the thermal diffusivity from the response to a heat source
 
 ### Changed
 
@@ -17,6 +18,7 @@ All notable changes to this project will be documented in this file.
   temperature heat-source gratings decayed too fast (2.6x in Si) and heat-source `kappa` changed by a few % in the
   nondiffusive regime. `dT` still reports the energy temperature E/C, the closure temperature is available as
   `dT_closure` (also saved to the output files)
+- numba is optional for `greenWTE.post`
 
 ### Fixed
 

@@ -250,6 +250,151 @@ We can see that the real part of the thermal conductivity decreases with increas
 The phase lag between the heat flux and the applied temperature gradient is captured by the imaginary part of the thermal conductivity. Try this for CsPbBr\ :sub:`3`
 as well and see how the population contributions are suppressed even more strongly at higher frequencies compared to the coherence contributions!
 
+Thermal diffusivity from a heat source
+--------------------------------------
+Instead of imposing a temperature gradient we can also inject energy and let the solver find the resulting temperature
+change :math:`\Delta T(\omega)` self-consistently. Here we heat Silicon with the :func:`~greenWTE.sources.source_term_diag`
+source on a thermal grating with a period of :math:`2\pi/k \approx 0.6` mm, much longer than the phonon mean free paths.
+In this diffusive limit the heat equation predicts
+
+.. math::
+
+   \Delta T(\omega) = \frac{A}{D k^2 - i\omega}
+   \qquad\Longleftrightarrow\qquad
+   \Delta T(t) = A\, e^{-D k^2 t},
+
+i.e. after an impulsive heating the grating decays exponentially at a rate set by the thermal diffusivity
+:math:`D = \kappa / C`, with :math:`C` the volumetric heat capacity. Note that here we use the ``'affine'`` outer solver:
+in the diffusive limit the self-consistency condition for :math:`\Delta T` is badly conditioned and the iterative outer
+solvers converge slowly or not at all, while ``'affine'`` solves it in closed form. Since the response is a Lorentzian,
+a single low frequency is enough to read off :math:`D` and compare it to :math:`\kappa / C` from the temperature
+gradient:
+
+.. testcode::
+
+    from greenWTE import xp
+    from greenWTE.base import Material
+    from greenWTE.iterative import IterativeWTESolver
+    from greenWTE.sources import source_term_diag, source_term_gradT
+    from greenWTE.tests.defaults import SI_INPUT_PATH
+
+    K_FT = 1e4  # spatial frequency in rad/m
+    OMEGA = 1e2  # temporal frequency in rad/s, well below D k^2
+    material = Material.from_phono3py(SI_INPUT_PATH, temperature=300)
+
+    # thermal conductivity from the temperature gradient
+    gradient = source_term_gradT(
+        K_FT,
+        material.velocity_operator,
+        material.phonon_freq,
+        material.linewidth,
+        material.heat_capacity,
+        material.volume,
+    )
+    solver = IterativeWTESolver([0], K_FT, material, gradient, source_type="gradient", outer_solver="none")
+    solver.run()
+    kappa = solver.kappa[0].real
+    heat_capacity = float(xp.sum(material.heat_capacity))
+
+    # temperature response to a heat source
+    heat = source_term_diag(material.heat_capacity)
+    solver = IterativeWTESolver([OMEGA], K_FT, material, heat, source_type="energy", outer_solver="affine")
+    solver.run()
+    inv_dT = 1 / complex(solver.dT[0])  # = (D k^2 - i omega) / A
+    D = -OMEGA * inv_dT.real / inv_dT.imag / K_FT**2
+
+    print(f"D = {D:.4e} m^2/s, kappa/C = {kappa / heat_capacity:.4e} m^2/s")
+
+.. testoutput::
+
+    D = 3.7932e-05 m^2/s, kappa/C = 3.7932e-05 m^2/s
+
+The diffusivity of the heated grating agrees with :math:`\kappa / C`. The value is low compared to the experimental
+:math:`\approx 0.9` cm\ :sup:`2`/s mostly because of the coarse q-point mesh.
+
+.. plot::
+    :context:
+    :caption: Temperature response of Silicon at 300K to a heat source on a thermal grating with k = 10\ :sup:`4` rad/m
+
+    import numpy as np
+    from greenWTE import to_cpu, xp
+    from greenWTE.base import Material
+    from greenWTE.iterative import IterativeWTESolver
+    from greenWTE.sources import source_term_diag
+    from greenWTE.tests.defaults import SI_INPUT_PATH
+    import matplotlib.pyplot as plt
+
+    K_FT = 1e4  # spatial frequency in rad/m
+    omegas = xp.logspace(0, 7, 61)  # temporal frequencies in rad/s
+    material = Material.from_phono3py(SI_INPUT_PATH, temperature=300)
+    solver = IterativeWTESolver(
+        omegas,
+        K_FT,
+        material,
+        source_term_diag(material.heat_capacity),
+        source_type="energy",
+        outer_solver="affine",
+        inner_solver="cgesv",
+    )
+    solver.run()
+    omegas, dT = to_cpu(omegas), to_cpu(solver.dT)
+
+    f, ax = plt.subplots()
+
+    ax.set_xlim(omegas[0], omegas[-1])
+    ax.plot(omegas, dT.real / dT[0].real, "o-", label=r"$\Re(\Delta T)$", mec="k")
+    ax.plot(omegas, dT.imag / dT[0].real, "o-", label=r"$\Im(\Delta T)$", mec="k")
+    ax.set_xscale("log")
+    ax.set_xlabel("temporal frequency [rad/s]")
+    ax.set_ylabel(r"$\Delta T(\omega)\, /\, \Delta T(0)$")
+    ax.legend()
+
+    f.tight_layout()
+    # plt.show()
+
+The real part rolls off and the imaginary part peaks at :math:`\omega = D k^2`, as expected for a Lorentzian. Going to
+the time domain, we Fourier transform the response with :func:`greenWTE.post.manual_ifft`, which interpolates it onto a
+linear frequency grid first. The grid spacing has to resolve the decay rate :math:`D k^2 \approx 4\cdot10^3` rad/s and
+the cutoff has to lie well above it. A straight-line fit to :math:`\ln \Delta T(t)` then gives the diffusivity directly:
+
+.. plot::
+    :context: close-figs
+    :caption: Decay of the heated grating in the time domain and exponential fit
+
+    from greenWTE.post import manual_ifft
+
+    t, dT_t = manual_ifft(omegas, dT, n_freq_lin=20001, freq_cutoff=1e6)
+    dT_t = dT_t.real / (2 * np.pi)  # time dependence exp(-i omega t)
+    keep = t < 2e-3  # the transform is periodic in t, keep the decay and drop the periodic image at late times
+    t, dT_t = t[keep], dT_t[keep]
+
+    fit = (t > 1e-4) & (t < 1.5e-3)  # skip the first few time steps
+    slope, intercept = np.polyfit(t[fit], np.log(dT_t[fit]), 1)
+    D = -slope / K_FT**2
+
+    f, ax = plt.subplots()
+
+    ax.set_xlim(t[0] * 1e3, t[-1] * 1e3)
+    ax.plot(t * 1e3, dT_t / np.exp(intercept), "-", label="inverse FFT")
+    ax.plot(t[fit] * 1e3, np.exp(slope * t[fit]), ":", c="k", label=f"fit, D = {D * 1e4:.3f} cm$^2$/s")
+    ax.set_yscale("log")
+    ax.set_ylim(1e-3, 1.5)
+    ax.set_xlabel("time [ms]")
+    ax.set_ylabel(r"$\Delta T(t)\, /\, A$")
+    ax.legend()
+
+    f.tight_layout()
+    # plt.show()
+
+Again we find :math:`D = 0.379` cm\ :sup:`2`/s :math:`= \kappa / C`, to within 0.1%. The bend of the trace below
+:math:`\sim 10^{-3}` is not physical: it reflects the limited accuracy of the numerical transform of the sampled
+spectrum, which is why the fit window ends before it. That the decay rate matches :math:`\kappa / C` relies on the
+relaxation term of the WTE conserving energy, which is why the solvers relax the populations towards the
+linewidth-weighted temperature :func:`~greenWTE.base.N_to_dT_closure`, while :attr:`~greenWTE.base.SolverBase.dT` reports the energy temperature
+:math:`E/C` (:func:`~greenWTE.base.N_to_dT`). Try the same for CsPbBr\ :sub:`3` (with a shorter grating period, e.g.
+:math:`k = 10^6` rad/m): the heated grating decays with :math:`(\kappa_\mathrm{P} + \kappa_\mathrm{C}) / C`, so the
+coherences carry heat in the diffusive limit just like the populations do.
+
 Explicit Green’s-function workflow (save + reuse)
 -------------------------------------------------
 The implicit tutorials above solve the WTE by applying the Wigner operator :math:`\mathcal{L}` inside an iterative

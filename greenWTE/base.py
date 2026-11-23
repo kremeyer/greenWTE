@@ -201,7 +201,7 @@ class AitkenAccelerator:
     ----------
     history : list
         A list to store the history of temperature changes dT. Once three entries are available they are used for the
-        acceleration, after which the history restarts from the accelerated value (Steffensen's method).
+        acceleration, after which the history restarts from the accelerated value.
 
     Notes
     -----
@@ -242,7 +242,7 @@ class AitkenAccelerator:
         if abs(denom) <= 1e-14 * max(abs(dT0), abs(dT1), abs(dT2)):
             return dT2
         dT_accel = dT0 - ((dT1 - dT0) ** 2) / denom
-        # restart from the accelerated value (Steffensen's method). Keeping the older iterates in the window would mix
+        # restart from the accelerated value. Keeping the older iterates in the window would mix
         # them with the new, possibly orders of magnitude different, values and spoil the next extrapolation.
         self.history = [dT_accel]
 

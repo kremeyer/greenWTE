@@ -1,7 +1,13 @@
 """Post-processing utilities for greenWTE."""
 
 import numpy as np
-from numba import njit, prange
+
+try:  # numba is optional: it speeds up manual_ifft considerably for long time and frequency axes
+    from numba import njit, prange
+except ImportError:  # pragma: no cover
+    njit = None
+    prange = range
+
 from scipy.interpolate import LinearNDInterpolator, PchipInterpolator
 from scipy.signal import savgol_filter
 
@@ -64,7 +70,8 @@ def manual_ifft(
     n_t = n_freq_lin // 10 + 1 if n_t is None else int(n_t) + 1
     t = np.linspace(0, t_total, n_t, endpoint=False)
     # calculate the ifft integral
-    data_ft = _ifft_integral_jit(freq_lin, data_lin, t, delta_freq)
+    ifft_integral = _ifft_integral_jit if _ifft_integral_jit is not None else _ifft_integral
+    data_ft = ifft_integral(freq_lin, data_lin, t, delta_freq)
 
     return t[1:], data_ft[1:]
 
@@ -76,8 +83,7 @@ def _ifft_integral(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float) ->
     return data_ft
 
 
-@njit(parallel=True, fastmath=True)
-def _ifft_integral_jit(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float) -> np.ndarray:
+def _ifft_integral_kernel(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float) -> np.ndarray:
     n_t = t.shape[0]
     n_f = f.shape[0]
     data_ft = np.empty(n_t, dtype=np.complex128)
@@ -97,6 +103,9 @@ def _ifft_integral_jit(f: np.ndarray, data: np.ndarray, t: np.ndarray, df: float
         data_ft[i] = complex(acc_real * df, acc_imag * df)
 
     return data_ft
+
+
+_ifft_integral_jit = njit(parallel=True, fastmath=True)(_ifft_integral_kernel) if njit is not None else None
 
 
 def interpolate_onto_path(

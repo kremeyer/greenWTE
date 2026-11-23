@@ -109,5 +109,5 @@ def _final_residual_and_scale(solver, material):
     dT_next = N_to_dT(n_next, material)
 
     r_abs = float(xp.abs(dT_final - dT_next))
-    scale = float(max(xp.abs(dT_final), xp.abs(dT_next), 1.0))
+    scale = float(max(xp.abs(dT_final), xp.abs(dT_next)))
     return r_abs, scale, dT_final, dT_next

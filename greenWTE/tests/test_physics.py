@@ -150,7 +150,7 @@ def test_dT_convergence_absolute(outer_solver, inner_solver):
 @pytest.mark.parametrize("outer_solver", ["aitken", "plain", "root"])
 @pytest.mark.parametrize("inner_solver", ["cgesv", "gmres"])
 def test_dT_convergence_relative(outer_solver, inner_solver):
-    """Converges under relative tolerance only: |F(dT)| <= conv_thr_r * max(|dT|,|dT_next|,1)."""
+    """Converges under relative tolerance only: |F(dT)| <= conv_thr_r * max(|dT|,|dT_next|)."""
     conv_thr_rel = 1e-7 if outer_solver != "plain" else 1e-3  # plain is slow
     conv_thr_abs = 0.0  # disable absolute tolerance
 

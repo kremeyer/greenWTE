@@ -200,7 +200,8 @@ class AitkenAccelerator:
     Attributes
     ----------
     history : list
-        A list to store the history of temperature changes dT. The last three entries are used for the acceleration.
+        A list to store the history of temperature changes dT. Once three entries are available they are used for the
+        acceleration, after which the history restarts from the accelerated value (Steffensen's method).
 
     Notes
     -----
@@ -237,10 +238,13 @@ class AitkenAccelerator:
             return dT_new
         dT0, dT1, dT2 = self.history[-3:]
         denom = dT2 - 2 * dT1 + dT0
-        if abs(denom) < 1e-14:
+        # relative guard: dT can be many orders of magnitude below 1 K (e.g. normalized energy sources)
+        if abs(denom) <= 1e-14 * max(abs(dT0), abs(dT1), abs(dT2)):
             return dT2
         dT_accel = dT0 - ((dT1 - dT0) ** 2) / denom
-        self.history[-1] = dT_accel
+        # restart from the accelerated value (Steffensen's method). Keeping the older iterates in the window would mix
+        # them with the new, possibly orders of magnitude different, values and spoil the next extrapolation.
+        self.history = [dT_accel]
 
         return dT_accel
 
@@ -490,10 +494,8 @@ class SolverBase(ABC):
             ``True`` absolute and relative convergence criteria are met.
 
         """
-        r = dT - dT_new
-        r_abs = float(xp.abs(r))
-        scale = float(max(xp.abs(dT), xp.abs(dT_new), 1.0))
-        thresh = self.conv_thr_abs + self.conv_thr_rel * scale
+        r_abs = float(xp.abs(dT - dT_new))
+        thresh = self.conv_thr_abs + self.conv_thr_rel * _dT_scale(dT, dT_new)
         return r_abs <= thresh
 
     def run(self) -> None:
@@ -600,6 +602,7 @@ class SolverBase(ABC):
         gmres_residual = []
 
         iterations = 0
+        converged = False
         for _ in range(self.max_iter):
             iterations += 1
             iter_start = time.time()
@@ -626,6 +629,14 @@ class SolverBase(ABC):
             if converged:
                 self.history.append((omg_ft, dT_new))
                 break
+
+        if not converged:
+            print(
+                RuntimeWarning(
+                    f"{self.outer_solver} outer solver did not converge within max_iter={self.max_iter} iterations "
+                    f"at omega={float(omg_ft):.3e} rad/s; consider outer_solver='affine' for energy sources"
+                )
+            )
 
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
@@ -677,6 +688,7 @@ class SolverBase(ABC):
         gmres_residual = []
 
         iterations = 0
+        converged = False
         for _ in range(self.max_iter):
             iterations += 1
             iter_start = time.time()
@@ -704,6 +716,14 @@ class SolverBase(ABC):
             if converged:
                 self.history.append((omg_ft, dT))
                 break
+
+        if not converged:
+            print(
+                RuntimeWarning(
+                    f"{self.outer_solver} outer solver did not converge within max_iter={self.max_iter} iterations "
+                    f"at omega={float(omg_ft):.3e} rad/s; consider outer_solver='affine' for energy sources"
+                )
+            )
 
         return omg_ft, dT, dT_init, n, iterations, iter_times, dT_iterates, n_norms, gmres_residual
 
@@ -878,11 +898,12 @@ class SolverBase(ABC):
         last_eval_dT = None
         last_eval_n = None
         last_eval_dTnew = None
+        res_scale = None  # fixed per frequency so the residual stays affine in x
 
         def residual_vec(x: np.ndarray) -> np.ndarray:
             # x is np.array([Re(dT), Im(dT)]) on CPU (necessary for scipy)
             nonlocal n, n_old, dT_iterates, gmres_residual, iter_times
-            nonlocal last_eval_dT, last_eval_n, last_eval_dTnew
+            nonlocal last_eval_dT, last_eval_n, last_eval_dTnew, res_scale
             dT = xp.asarray(x[0] + 1j * x[1], dtype=self.material.dtypec)
             iter_start = time.time()
             n_old = n
@@ -910,9 +931,12 @@ class SolverBase(ABC):
                 last_eval_dTnew = dT_new
                 return np.array([0.0, 0.0], dtype=self.material.dtyper)
 
-            scale = float(max(xp.abs(dT), xp.abs(dT_new), 1.0))
-            rR = float(xp.real(dT - dT_new)) / scale
-            rI = float(xp.imag(dT - dT_new)) / scale
+            # A constant scale keeps the residual affine in x. Rescaling with the current iterate instead would make
+            # it flatten out for large |x| and lets the root finder drift away from the solution.
+            if res_scale is None:
+                res_scale = _dT_scale(dT, dT_new) or 1.0
+            rR = float(xp.real(dT - dT_new)) / res_scale
+            rI = float(xp.imag(dT - dT_new)) / res_scale
 
             last_eval_dT = (x[0], x[1])
             last_eval_n = n
@@ -1085,6 +1109,26 @@ class SolverBase(ABC):
         den = 1j * self.k_ft * self.dT
         self._kappa_c = _safe_divide(flux_offdiag, den)
         return self._kappa_c
+
+
+def _dT_scale(dT: complex, dT_new: complex) -> float:
+    r"""Magnitude used to make :math:`\Delta T` convergence criteria relative.
+
+    No floor is applied: depending on the source normalization :math:`\Delta T` can be many orders of magnitude below
+    1 K, and a floor would turn the relative tolerance into a (too loose) absolute one.
+
+    Parameters
+    ----------
+    dT, dT_new : complex
+        Two successive temperature changes.
+
+    Returns
+    -------
+    float
+        ``max(|dT|, |dT_new|)``.
+
+    """
+    return float(max(xp.abs(dT), xp.abs(dT_new)))
 
 
 def _safe_divide(

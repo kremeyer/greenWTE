@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file.
   sources in closed form with two applications of the Green operator, reliable also in the diffusive regime where the
   iterative outer solvers stall
 
+### Fixed
+
+- outer solvers stopped too early when |dT| << 1 K (e.g. normalized energy sources), because the relative tolerance
+  was floored at 1 K
+- `root` outer solver drifting away from the solution; `aitken` outer solver never accelerating for small dT and
+  mixing stale iterates after an acceleration step
+- `aitken` and `plain` outer solvers now warn when they do not converge within `max_iter` iterations
+
 ## [1.1.0] - 2026-11-20
 
 ### Added

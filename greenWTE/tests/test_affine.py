@@ -101,6 +101,50 @@ def test_affine_self_consistent_and_solvers_agree(si_material, source_fn, k_ft):
     assert sg.dT_iterates.shape == (len(OMEGAS), 1)
 
 
+@pytest.mark.parametrize(
+    "outer_solver, k_ft, rtol",
+    [
+        ("aitken", 1e8, 1e-9),
+        ("root", 1e8, 1e-9),
+        # diffusive regime: 1/|1-b| ~ 1e7 amplifies the ~1e-13 fixed-point residual into the dT error
+        ("root", 1e4, 1e-4),
+    ],
+)
+def test_iterative_outer_solvers_reach_fixed_point(si_material, outer_solver, k_ft, rtol):
+    """Iterative outer solvers must converge to the true fixed point for small (normalized-source) dT.
+
+    Regression test: a 1 K floor in the convergence scale made the relative tolerance an absolute one far larger
+    than dT ~ 1e-14 K, so these solvers stopped with fixed-point errors of 1-30% while reporting success. Aitken is
+    not tested in the diffusive regime: its second differences ~ (1-b)^2 drown in round-off there, see
+    :func:`test_non_converged_outer_solver_warns`.
+    """
+    source = source_term_full(si_material.heat_capacity)
+    omegas = xp.asarray(OMEGAS)
+
+    ref = IterativeWTESolver(
+        omegas, k_ft, si_material, source, source_type="energy", outer_solver="affine", inner_solver="cgesv"
+    )
+    ref.run()
+    s = IterativeWTESolver(
+        omegas, k_ft, si_material, source, source_type="energy", outer_solver=outer_solver, inner_solver="cgesv"
+    )
+    s.run()
+
+    assert np.max(np.abs(to_cpu(ref.dT))) < 1e-6  # |dT| << 1 K: the regime that used to break
+    assert _self_consistency_error(s, si_material) < 1e-10
+    np.testing.assert_allclose(to_cpu(s.dT), to_cpu(ref.dT), rtol=rtol)
+
+
+@pytest.mark.parametrize("outer_solver", ["aitken", "plain"])
+def test_non_converged_outer_solver_warns(si_material, outer_solver, capfd):
+    """Hitting max_iter must be reported instead of silently returning an unconverged dT."""
+    source = source_term_full(si_material.heat_capacity)
+    s = IterativeWTESolver([1e3], 1e4, si_material, source, source_type="energy", outer_solver=outer_solver, max_iter=5)
+    s.run()
+    out = capfd.readouterr().out
+    assert f"{outer_solver} outer solver did not converge within max_iter=5" in out
+
+
 def test_affine_rejects_gradient_source(si_material):
     """With a gradient source dT is imposed, so the affine solve is meaningless."""
     k_ft = 1e6

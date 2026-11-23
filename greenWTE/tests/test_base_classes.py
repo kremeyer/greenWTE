@@ -59,6 +59,19 @@ def test_aitken_accelerator():
     assert dT_accel == 2
 
 
+@pytest.mark.parametrize("scale", [1.0, 1e-14])
+def test_aitken_accelerator_scale_invariant(scale):
+    """Aitken extrapolates a geometric sequence to its limit, independent of the magnitude of dT.
+
+    Normalized energy sources give dT far below 1 K; an absolute guard on the denominator used to disable acceleration.
+    """
+    a = AitkenAccelerator()
+    a.update(scale * (1.5 + 0.5j))
+    a.update(scale * (1.25 + 0.75j))
+    dT_accel = a.update(scale * (1.125 + 0.875j))
+    assert abs(dT_accel - scale * (1 + 1j)) < 1e-12 * scale
+
+
 def test_initial_dT_estimation():
     """Test the initial dT estimation function."""
     history = []

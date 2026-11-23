@@ -349,6 +349,6 @@ And voila, we get the same result as before:
 This functionality is also exposed in the CLI via :mod:`~greenWTE.precompute_green` and :mod:`~greenWTE.solve_green`, which are documented in the :doc:`cli-arguments` section.
 
 This short tutorial should give you a good starting point to use the greenWTE package for your own calculations. Note that the grid for the dataset is not converged,
-but will give the right trends for many applications. An idea of more sophisticated  applications of greenWTE is given in the arXiv preprint `"Transition from
-Population to Coherence-dominated Non-diffusive Thermal Transport" [arXiv:2512.13616 (2025)] <https://arxiv.org/abs/2512.13616>`_. The calculations fully rely on scripts similar to the
+but will give the right trends for many applications. An idea of more sophisticated  applications of greenWTE is given in `"Transition from
+population- to coherence-dominated nondiffusive thermal transport" [Phys. Rev. B 113, 184304 (2026)] <https://journals.aps.org/prb/abstract/10.1103/rcws-tjy7>`_. The calculations fully rely on scripts similar to the
 ones shown in these tutorials.
